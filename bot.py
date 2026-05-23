@@ -64,6 +64,11 @@ ADMIN_BUTTONS = [
     "❌ Удалить товар", "🔙 Выйти",
 ]
 
+CLIENT_BUTTONS = ["📦 Каталог", "🛒 Корзина"]
+
+ALL_MENU_BUTTONS = ADMIN_BUTTONS + CLIENT_BUTTONS + ["Отмена", "Пропустить"]
+
+
 # =========================
 # Хранение
 # =========================
@@ -258,7 +263,7 @@ def format_order_message(order: dict):
 
 
 def is_menu_button(text: str) -> bool:
-    return text in ADMIN_BUTTONS or text in ["📦 Каталог", "🛒 Корзина"]
+    return text in ALL_MENU_BUTTONS
 
 
 # =========================
@@ -301,8 +306,6 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif text == "❌ Удалить товар" and admin:
         await update.message.reply_text("Введите ID товара для удаления:")
         return DELETE_PRODUCT_ID
-    elif admin and is_menu_button(text):
-        await update.message.reply_text("Используйте кнопки меню для навигации.")
     else:
         await update.message.reply_text("Используйте кнопки меню.")
 
@@ -845,4 +848,152 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
-    text = update
+    text = update.message.text.strip()
+    if is_menu_button(text):
+        await update.message.reply_text("Удаление отменено.", reply_markup=admin_menu())
+        return ConversationHandler.END
+    try:
+        pid = int(text)
+    except ValueError:
+        await update.message.reply_text("Введите числовой ID товара:")
+        return DELETE_PRODUCT_ID
+
+    product = get_product_by_id(pid)
+    if not product:
+        await update.message.reply_text("Товар не найден.", reply_markup=admin_menu())
+        return ConversationHandler.END
+
+    if product.get("photo"):
+        path = os.path.join(PHOTOS_DIR, product["photo"])
+        try:
+            os.remove(path)
+        except Exception as e:
+            log.warning("Failed to remove photo %s: %s", path, e)
+
+    products = [p for p in load_products() if p.get("id") != pid]
+    save_products(products)
+    await update.message.reply_text(f"✅ Товар '{product['name']}' удалён.", reply_markup=admin_menu())
+    return ConversationHandler.END
+
+
+# =========================
+# Админка: заказы
+# =========================
+
+async def show_orders_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    orders = load_orders()
+    if not orders:
+        await update.message.reply_text("Заказов пока нет.", reply_markup=admin_menu())
+        return
+    lines = ["📋 <b>Последние заказы:</b>\n"]
+    for o in orders[-10:]:
+        lines.append(f"Заказ #{o['id']}: {escape(o['client_name'])} | {o['total']:,.0f}₽ | {o['created_at']}")
+    await update.message.reply_text("\n".join(lines), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+# =========================
+# Запуск
+# =========================
+
+def main():
+    init_storage()
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    add_product_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_name_new)],
+        states={
+            ADD_PRODUCT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_name_new)],
+            ADD_PRODUCT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_desc)],
+            ADD_PRODUCT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_price)],
+            ADD_PRODUCT_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)],
+            ADD_PRODUCT_CATEGORY: [CallbackQueryHandler(add_product_category, pattern="^cat_prod\\|")],
+            ADD_PRODUCT_PHOTO: [
+                MessageHandler(filters.PHOTO, add_product_photo),
+                MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    order_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cart_action, pattern="^(checkout|clear_cart|edit_cart)$")],
+        states={
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+            ASK_PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), ask_phone)],
+            ASK_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_comment)],
+            EDIT_CART_ITEM: [CallbackQueryHandler(edit_cart_item, pattern="^(editcart\\||back_to_cart_view)")],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    cart_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(nav_product, pattern="^add\\|")],
+        states={
+            ADD_TO_CART_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_to_cart)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    add_admin_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^👤 Добавить менеджера$"), add_admin_id)],
+        states={
+            ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_admin_id)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    delete_product_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^❌ Удалить товар$"), delete_product)],
+        states={
+            DELETE_PRODUCT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_product)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    new_cat_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_name)],
+        states={
+            NEW_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_category_name)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    rename_cat_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(rename_category_prompt, pattern="^rename_cat\\|")],
+        states={
+            RENAME_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, rename_category_execute)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        allow_reentry=True,
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(add_product_conv)
+    app.add_handler(order_conv)
+    app.add_handler(cart_conv)
+    app.add_handler(add_admin_conv)
+    app.add_handler(delete_product_conv)
+    app.add_handler(new_cat_conv)
+    app.add_handler(rename_cat_conv)
+
+    app.add_handler(CallbackQueryHandler(show_category_products, pattern="^cat\\|"))
+    app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|back_to_cats)"))
+    app.add_handler(CallbackQueryHandler(category_manage_action, pattern="^(cat_manage\\||clean_placeholders)"))
+    app.add_handler(CallbackQueryHandler(delete_category, pattern="^del_cat\\|"))
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_messages))
+
+    log.info("✅ Бот запущен!")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
