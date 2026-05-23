@@ -187,6 +187,7 @@ def main_keyboard(user_id):
                 ["📦 Каталог", "🛒 Корзина"],
                 ["➕ Добавить товар", "➕ Добавить категорию"],
                 ["📋 Заказы", "❌ Удалить товар"],
+                ["🔙 Режим покупателя"],
             ],
             resize_keyboard=True,
         )
@@ -299,8 +300,9 @@ async def render_product(query, context):
 
     try:
         if photo_path and os.path.exists(photo_path):
-            with open(photo_path, "rb") as ph:
-                await query.edit_message_media(
+            try:
+                with open(photo_path, "rb") as ph:
+                    await query.edit_message_media(
                     media=InputMediaPhoto(
                         media=ph,
                         caption=text,
@@ -315,7 +317,9 @@ async def render_product(query, context):
                 reply_markup=markup,
             )
 
-    except Exception:
+    from telegram.error import BadRequest
+
+    except BadRequest:
         if photo_path and os.path.exists(photo_path):
             with open(photo_path, "rb") as ph:
                 await query.message.reply_photo(
@@ -921,20 +925,47 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await view_cart(update, context)
 
     elif text == "➕ Добавить категорию":
-        if is_admin(update.effective_user.id):
-            return await add_category_start(update, context)
+        if not is_admin(update.effective_user.id):
+            await update.message.reply_text("⛔ Недостаточно прав")
+            return
+
+        return await add_category_start(update, context)
 
     elif text == "➕ Добавить товар":
-        if is_admin(update.effective_user.id):
-            return await add_product_start(update, context)
+        if not is_admin(update.effective_user.id):
+            await update.message.reply_text("⛔ Недостаточно прав")
+            return
+
+        return await add_product_start(update, context)
 
     elif text == "📋 Заказы":
-        if is_admin(update.effective_user.id):
-            await show_orders(update, context)
+        if not is_admin(update.effective_user.id):
+            await update.message.reply_text("⛔ Недостаточно прав")
+            return
+
+        await show_orders(update, context)
 
     elif text == "❌ Удалить товар":
-        if is_admin(update.effective_user.id):
-            return await delete_product_start(update, context)
+        if not is_admin(update.effective_user.id):
+            await update.message.reply_text("⛔ Недостаточно прав")
+            return
+
+        return await delete_product_start(update, context)
+
+
+# =========================================================
+# CUSTOMER MODE
+# =========================================================
+
+
+async def switch_customer_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Вы переключились в режим покупателя",
+        reply_markup=ReplyKeyboardMarkup(
+            [["📦 Каталог", "🛒 Корзина"]],
+            resize_keyboard=True,
+        ),
+    )
 
 
 # =========================================================
@@ -1015,10 +1046,11 @@ def main():
                 )
             ],
             ADD_PRODUCT_PHOTO: [
+                MessageHandler(filters.PHOTO, add_product_photo),
                 MessageHandler(
-                    filters.PHOTO | filters.TEXT,
+                    filters.Regex("^Пропустить$"),
                     add_product_photo,
-                )
+                ),
             ],
         },
         fallbacks=[],
@@ -1068,6 +1100,13 @@ def main():
         CallbackQueryHandler(
             navigate,
             pattern="^(next|prev|back_categories)$"
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^🔙 Режим покупателя$"),
+            switch_customer_mode,
         )
     )
 
