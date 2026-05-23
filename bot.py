@@ -623,12 +623,10 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     name = update.message.text.strip()
 
-    # Если нажата кнопка прерывания — отменяем и запускаем новое действие
     if is_interrupt_button(name):
         await update.message.reply_text("Создание категории отменено.", reply_markup=admin_menu())
         return await handle_all_messages(update, context)
 
-    # Запрещённые имена
     if name in FORBIDDEN_NAMES:
         await update.message.reply_text("Это имя зарезервировано. Введите другое название категории:")
         return NEW_CATEGORY_NAME
@@ -1005,6 +1003,7 @@ def main():
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|back_to_cats)"))
     app.add_handler(CallbackQueryHandler(category_manage_action, pattern="^(cat_manage\\||clean_placeholders)"))
     app.add_handler(CallbackQueryHandler(delete_category, pattern="^del_cat\\|"))
+    app.add_handler(CallbackQueryHandler(show_manage_categories, pattern="^back_to_cat_list$"))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_messages))
 
