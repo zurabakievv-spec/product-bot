@@ -57,6 +57,12 @@ PHOTOS_DIR = "photos"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+MENU_BUTTONS = [
+    "➕ Добавить товар", "📦 Управление товарами",
+    "📂 Управление категориями", "➕ Добавить категорию",
+    "👤 Добавить менеджера", "📋 Заказы",
+    "❌ Удалить товар", "🔙 Выйти",
+]
 
 # =========================
 # Хранение
@@ -80,12 +86,10 @@ def safe_load_json(filename: str, default):
             content = f.read().strip()
         if not content:
             return default
-        # Сначала пробуем обычный JSON
         try:
             return json.loads(content)
         except json.JSONDecodeError:
             pass
-        # Если не вышло — пробуем Base64
         decoded = base64.b64decode(content).decode("utf-8")
         return json.loads(decoded)
     except Exception as e:
@@ -216,7 +220,7 @@ def admin_menu():
     return ReplyKeyboardMarkup(
         [
             ["➕ Добавить товар", "📦 Управление товарами"],
-            ["📂 Управление подгруппами", "➕ Добавить подгруппу"],
+            ["📂 Управление категориями", "➕ Добавить категорию"],
             ["👤 Добавить менеджера", "📋 Заказы"],
             ["❌ Удалить товар", "🔙 Выйти"],
         ],
@@ -265,7 +269,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Единый обработчик всех текстовых сообщений."""
     text = update.message.text
     user_id = update.effective_user.id
     admin = is_admin(user_id)
@@ -279,15 +282,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif text == "➕ Добавить товар" and admin:
         await update.message.reply_text("Введите название товара:")
         return ADD_PRODUCT_NAME
-    elif text == "➕ Добавить подгруппу" and admin:
-        await update.message.reply_text("Введите название новой подгруппы:")
+    elif text == "➕ Добавить категорию" and admin:
+        await update.message.reply_text("Введите название новой категории:")
         return NEW_CATEGORY_NAME
     elif text == "👤 Добавить менеджера" and admin:
         await update.message.reply_text("Введите Telegram ID нового менеджера:")
         return ADD_ADMIN_ID
     elif text == "📦 Управление товарами" and admin:
         await list_products_admin(update, context)
-    elif text == "📂 Управление подгруппами" and admin:
+    elif text == "📂 Управление категориями" and admin:
         await show_manage_categories(update, context)
     elif text == "📋 Заказы" and admin:
         await show_orders_list(update, context)
@@ -304,7 +307,7 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Каталог пока пуст.", reply_markup=main_keyboard())
         return
     kb = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in cats]
-    await update.message.reply_text("📂 Выберите подгруппу:", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("📂 Выберите категорию:", reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def show_category_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -315,7 +318,7 @@ async def show_category_products(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["cat_products"] = products
     context.user_data["current_index"] = 0
     if not products:
-        await query.edit_message_text("В этой подгруппе пока нет товаров.")
+        await query.edit_message_text("В этой категории пока нет товаров.")
         return
     await show_product_card(update, context)
 
@@ -336,7 +339,7 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [nav]
     if p.get("stock", 0) > 0:
         rows.append([InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add|{p['id']}")])
-    rows.append([InlineKeyboardButton("🔙 К подгруппам", callback_data="back_to_cats")])
+    rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
 
     photo_path = os.path.join(PHOTOS_DIR, p.get("photo", "")) if p.get("photo") else None
 
@@ -580,18 +583,23 @@ async def add_admin_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# Админка: подгруппы
+# Админка: категории
 # =========================
 
 async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
     name = update.message.text.strip()
+
+    if name in MENU_BUTTONS:
+        await update.message.reply_text("Пожалуйста, введите название категории текстом.", reply_markup=admin_menu())
+        return NEW_CATEGORY_NAME
+
     cats = get_categories()
     if name in cats:
-        await update.message.reply_text("Такая подгруппа уже существует!", reply_markup=admin_menu())
+        await update.message.reply_text("Такая категория уже существует!", reply_markup=admin_menu())
         return ConversationHandler.END
-    # Категория появляется, когда к ней привязан товар. Создадим фиктивный товар-заглушку.
+
     products = load_products()
     products.append({
         "id": next_product_id(),
@@ -603,7 +611,7 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "photo": ""
     })
     save_products(products)
-    await update.message.reply_text(f"✅ Подгруппа '{name}' создана!", reply_markup=admin_menu())
+    await update.message.reply_text(f"✅ Категория '{name}' создана!", reply_markup=admin_menu())
     return ConversationHandler.END
 
 
@@ -612,13 +620,13 @@ async def show_manage_categories(update: Update, context: ContextTypes.DEFAULT_T
         return
     cats = get_categories()
     if not cats:
-        await update.message.reply_text("Подгрупп пока нет.", reply_markup=admin_menu())
+        await update.message.reply_text("Категорий пока нет.", reply_markup=admin_menu())
         return
     kb = []
     for cat in cats:
         kb.append([InlineKeyboardButton(cat, callback_data=f"cat_manage|{cat}")])
     kb.append([InlineKeyboardButton("🗑 Удалить пустые заглушки", callback_data="clean_placeholders")])
-    await update.message.reply_text("📂 Управление подгруппами:", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("📂 Управление категориями:", reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def category_manage_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -633,11 +641,11 @@ async def category_manage_action(update: Update, context: ContextTypes.DEFAULT_T
 
     cat = query.data.split("|", 1)[1]
     kb = [
-        [InlineKeyboardButton("🗑 Удалить подгруппу", callback_data=f"del_cat|{cat}")],
+        [InlineKeyboardButton("🗑 Удалить категорию", callback_data=f"del_cat|{cat}")],
         [InlineKeyboardButton("✏️ Переименовать", callback_data=f"rename_cat|{cat}")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_cat_list")],
     ]
-    await query.edit_message_text(f"Подгруппа: {escape(cat)}", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text(f"Категория: {escape(cat)}", reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -662,7 +670,7 @@ async def rename_category_execute(update: Update, context: ContextTypes.DEFAULT_
         if p.get("category") == old_name:
             p["category"] = new_name
     save_products(products)
-    await update.message.reply_text(f"✅ Подгруппа '{old_name}' переименована в '{new_name}'.", reply_markup=admin_menu())
+    await update.message.reply_text(f"✅ Категория '{old_name}' переименована в '{new_name}'.", reply_markup=admin_menu())
     return ConversationHandler.END
 
 
@@ -674,7 +682,7 @@ async def delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cat = query.data.split("|", 1)[1]
     products = [p for p in load_products() if p.get("category") != cat]
     save_products(products)
-    await query.edit_message_text(f"✅ Подгруппа '{cat}' и все товары в ней удалены.")
+    await query.edit_message_text(f"✅ Категория '{cat}' и все товары в ней удалены.")
 
 
 # =========================
@@ -721,10 +729,10 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_product"]["stock"] = stock
     cats = get_categories()
     if not cats:
-        await update.message.reply_text("Сначала создайте подгруппу.", reply_markup=admin_menu())
+        await update.message.reply_text("Сначала создайте категорию.", reply_markup=admin_menu())
         return ConversationHandler.END
     kb = [[InlineKeyboardButton(c, callback_data=f"cat_prod|{c}")] for c in cats]
-    await update.message.reply_text("Выберите подгруппу:", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("Выберите категорию:", reply_markup=InlineKeyboardMarkup(kb))
     return ADD_PRODUCT_CATEGORY
 
 
@@ -772,7 +780,7 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not products:
         await update.message.reply_text("Товаров пока нет.", reply_markup=admin_menu())
         return
-    lines = ["📋 <b>Товары по подгруппам:</b>\n"]
+    lines = ["📋 <b>Товары по категориям:</b>\n"]
     cats = get_categories()
     for cat in cats:
         lines.append(f"<b>{escape(cat)}</b>")
@@ -837,7 +845,6 @@ def main():
     init_storage()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Диалог: добавление товара
     add_product_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_name_new)],
         states={
@@ -846,98 +853,4 @@ def main():
             ADD_PRODUCT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_price)],
             ADD_PRODUCT_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)],
             ADD_PRODUCT_CATEGORY: [CallbackQueryHandler(add_product_category, pattern="^cat_prod\\|")],
-            ADD_PRODUCT_PHOTO: [
-                MessageHandler(filters.PHOTO, add_product_photo),
-                MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: оформление заказа
-    order_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(cart_action, pattern="^(checkout|clear_cart|edit_cart)$")],
-        states={
-            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASK_PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), ask_phone)],
-            ASK_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_comment)],
-            EDIT_CART_ITEM: [CallbackQueryHandler(edit_cart_item, pattern="^(editcart\\||back_to_cart_view)")],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: добавление в корзину
-    cart_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(nav_product, pattern="^add\\|")],
-        states={
-            ADD_TO_CART_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_to_cart)],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: добавление менеджера
-    add_admin_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^👤 Добавить менеджера$"), add_admin_id)],
-        states={
-            ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_admin_id)],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: удаление товара
-    delete_product_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^❌ Удалить товар$"), delete_product)],
-        states={
-            DELETE_PRODUCT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_product)],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: создание подгруппы
-    new_cat_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^➕ Добавить подгруппу$"), new_category_name)],
-        states={
-            NEW_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_category_name)],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    # Диалог: переименование подгруппы
-    rename_cat_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(rename_category_prompt, pattern="^rename_cat\\|")],
-        states={
-            RENAME_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, rename_category_execute)],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
-        allow_reentry=True,
-    )
-
-    app.add_handler(CommandHandler("start", start))
-
-    app.add_handler(add_product_conv)
-    app.add_handler(order_conv)
-    app.add_handler(cart_conv)
-    app.add_handler(add_admin_conv)
-    app.add_handler(delete_product_conv)
-    app.add_handler(new_cat_conv)
-    app.add_handler(rename_cat_conv)
-
-    app.add_handler(CallbackQueryHandler(show_category_products, pattern="^cat\\|"))
-    app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|back_to_cats)"))
-    app.add_handler(CallbackQueryHandler(category_manage_action, pattern="^(cat_manage\\||clean_placeholders)"))
-    app.add_handler(CallbackQueryHandler(delete_category, pattern="^del_cat\\|"))
-
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all_messages))
-
-    log.info("✅ Бот запущен!")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+            ADD_PRODUCT_PH
