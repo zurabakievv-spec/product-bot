@@ -80,6 +80,12 @@ def safe_load_json(filename: str, default):
             content = f.read().strip()
         if not content:
             return default
+        # Сначала пробуем обычный JSON
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        # Если не вышло — пробуем Base64
         decoded = base64.b64decode(content).decode("utf-8")
         return json.loads(decoded)
     except Exception as e:
