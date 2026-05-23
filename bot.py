@@ -52,7 +52,7 @@ PHOTOS_DIR = "photos"
     NEW_CATEGORY_NAME, RENAME_CATEGORY_NAME,
     EDIT_CART_ITEM, EDIT_CART_QTY,
     ADD_ADMIN_ID, DELETE_PRODUCT_ID,
-) = range(16)
+) = range(17)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
