@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -19,16 +20,29 @@ ADD_PRODUCT_STOCK, ADD_PRODUCT_PHOTO, ADD_PRODUCT_CATEGORY, ADD_CATEGORY_NAME = 
 
 # -------------------- Работа с JSON --------------------
 def load_json(filename):
-    """Загружает данные из JSON-файла. Если файла нет — создаёт пустой."""
+    """Загружает данные из JSON-файла, автоматически раскодируя Base64."""
     path = f"data/{filename}"
     if not os.path.exists(path):
         return []
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        content = f.read().strip()
+    if not content:
+        return []
+    # Пробуем раскодировать Base64
+    try:
+        decoded = base64.b64decode(content).decode("utf-8")
+        return json.loads(decoded)
+    except Exception:
+        # Если не Base64 — читаем как обычный JSON
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return []
 
 def save_json(filename, data):
     """Сохраняет данные в JSON-файл."""
-    with open(f"data/{filename}", "w", encoding="utf-8") as f:
+    path = f"data/{filename}"
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def is_admin(user_id):
@@ -118,12 +132,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_CATEGORY_NAME
     elif text == "👤 Добавить админа" and is_admin(update.effective_user.id):
         await update.message.reply_text("Введите Telegram ID нового администратора:")
-        return 20  # специальное состояние
+        return 20
     elif text == "📋 Список товаров" and is_admin(update.effective_user.id):
         await list_products_admin(update, context)
     elif text == "❌ Удалить товар" and is_admin(update.effective_user.id):
         await update.message.reply_text("Введите ID товара для удаления:")
-        return 21  # специальное состояние
+        return 21
 
 # -------------------- Каталог --------------------
 async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,7 +179,6 @@ async def show_product_card(update, context):
     products = context.user_data["cat_products"]
     product = products[index]
 
-    # Текст карточки
     if product['stock'] > 0:
         stock_text = f"📦 В наличии: {product['stock']} шт."
     else:
@@ -178,7 +191,6 @@ async def show_product_card(update, context):
         f"{stock_text}"
     )
 
-    # Кнопки навигации
     keyboard = []
     nav_row = []
 
@@ -190,20 +202,16 @@ async def show_product_card(update, context):
 
     keyboard.append(nav_row)
 
-    # Кнопка добавления в корзину
     if product['stock'] > 0:
         keyboard.append([InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add_{product['id']}")])
 
     keyboard.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
 
-    # Отправка фото с подписью
     photo_file = product.get('photo', '')
     photo_path = f"photos/{photo_file}" if photo_file else ""
 
     if photo_file and os.path.exists(photo_path):
-        # Если сообщение от query (после нажатия кнопки) — редактируем
         if hasattr(update, 'callback_query') and update.callback_query:
-            # Для callback_query удаляем предыдущее фото и шлём новое
             await update.callback_query.delete_message()
             await update.callback_query.message.reply_photo(
                 photo=open(photo_path, "rb"),
@@ -219,7 +227,6 @@ async def show_product_card(update, context):
                 parse_mode="Markdown"
             )
     else:
-        # Без фото
         if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.edit_message_text(
                 text,
@@ -248,13 +255,11 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_categories(update, context)
         return ConversationHandler.END
     elif action == "nav_none":
-        # Декоративная кнопка с номером — ничего не делаем
         return
     elif action.startswith("add_"):
         product_id = int(action.replace("add_", ""))
         context.user_data["adding_product_id"] = product_id
 
-        # Находим товар
         products = load_json("products.json")
         product = next((p for p in products if p["id"] == product_id), None)
 
@@ -298,7 +303,6 @@ async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Недостаточно товара. В наличии: {product['stock']} шт.")
         return ADD_TO_CART_QTY
 
-    # Добавляем в корзину
     cart = context.user_data.get("cart", [])
     existing = next((item for item in cart if item["id"] == product_id), None)
 
@@ -372,7 +376,6 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["client_name"] = update.message.text
 
-    # Клавиатура с кнопкой "Поделиться номером"
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton("📱 Поделиться номером", request_contact=True)], ["Отмена"]],
         resize_keyboard=True,
@@ -387,20 +390,16 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Оформление отменено.", reply_markup=main_keyboard())
         return ConversationHandler.END
 
-    # Если пользователь поделился контактом через кнопку
     if update.message.contact:
         phone = update.message.contact.phone_number
-        # Приводим к формату 8...
         if phone.startswith("+7"):
             phone = "8" + phone[2:]
         elif phone.startswith("7"):
             phone = "8" + phone[1:]
     else:
         phone = update.message.text.strip()
-        # Убираем лишние символы
         phone = phone.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
 
-    # Проверка
     if not phone.startswith("8") or len(phone) != 11 or not phone.isdigit():
         await update.message.reply_text(
             "❌ Номер должен начинаться с 8 и содержать 11 цифр. Попробуйте ещё раз:"
@@ -409,7 +408,6 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["phone"] = phone
 
-    # Шаг 3: комментарий
     keyboard = ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)
     await update.message.reply_text("Комментарий к заказу (необязательно):", reply_markup=keyboard)
     return ASK_COMMENT
@@ -425,7 +423,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     comment = "" if text == "Пропустить" else text
     context.user_data["comment"] = comment
 
-    # Формируем заказ
     cart = context.user_data.get("cart", [])
     total = sum(item["price"] * item["quantity"] for item in cart)
 
@@ -437,7 +434,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total
     )
 
-    # Отправляем в группу менеджеров
     items_text = "\n".join([
         f"— {item['name']} × {item['quantity']} = {item['price'] * item['quantity']}₽"
         for item in cart
@@ -454,13 +450,11 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(GROUP_CHAT_ID, group_msg, parse_mode="Markdown")
 
-    # Уведомление клиенту
     await update.message.reply_text(
         "✅ Заказ оформлен! Мы свяжемся с вами в ближайшее время.",
         reply_markup=main_keyboard()
     )
 
-    # Очищаем корзину
     context.user_data["cart"] = []
     return ConversationHandler.END
 
@@ -511,7 +505,6 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Введите целое число!")
         return ADD_PRODUCT_STOCK
 
-    # Показываем список категорий
     categories = get_categories()
     if not categories:
         await update.message.reply_text("Сначала создайте категорию через меню!")
@@ -536,14 +529,12 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Шаг 6: фото и сохранение товара."""
     new_product = context.user_data["new_product"]
 
-    # Генерируем ID
     products = load_json("products.json")
     new_id = max([p["id"] for p in products], default=0) + 1
     new_product["id"] = new_id
 
-    # Сохраняем фото
     if update.message.photo:
-        photo_file = update.message.photo[-1]  # Берём самое большое разрешение
+        photo_file = update.message.photo[-1]
         file = await photo_file.get_file()
         filename = f"product_{new_id}.jpg"
         await file.download_to_drive(f"photos/{filename}")
@@ -551,7 +542,6 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         new_product["photo"] = ""
 
-    # Сохраняем товар
     products.append(new_product)
     save_json("products.json", products)
 
@@ -565,13 +555,11 @@ async def add_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление новой категории."""
     category_name = update.message.text.strip()
 
-    # Проверяем, нет ли уже такой
     categories = get_categories()
     if category_name in categories:
         await update.message.reply_text("Такая категория уже существует!", reply_markup=admin_keyboard())
         return ConversationHandler.END
 
-    # Категории хранятся неявно в товарах — создаём пустой товар-заглушку
     await update.message.reply_text(
         f"✅ Категория '{category_name}' создана! Добавляйте в неё товары.",
         reply_markup=admin_keyboard()
@@ -611,7 +599,6 @@ async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Товар с таким ID не найден.", reply_markup=admin_keyboard())
         return ConversationHandler.END
 
-    # Удаляем фото если есть
     if product.get("photo"):
         photo_path = f"photos/{product['photo']}"
         if os.path.exists(photo_path):
@@ -631,18 +618,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------- Запуск --------------------
 def main():
     """Точка входа."""
-    # Создаём папки, если их нет
     os.makedirs("data", exist_ok=True)
     os.makedirs("photos", exist_ok=True)
 
-    # Создаём пустые JSON-файлы, если их нет
     for filename in ["products.json", "orders.json", "admins.json"]:
-        if not os.path.exists(f"data/{filename}"):
-            save_json(filename, [])
+        path = f"data/{filename}"
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                if filename == "admins.json":
+                    f.write("[707877919]")
+                else:
+                    f.write("[]")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # ConversationHandler для добавления товара
     add_product_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_name)],
         states={
@@ -659,7 +648,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # ConversationHandler для оформления заказа
     order_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cart_action, pattern="^(checkout|clear_cart)$")],
         states={
@@ -673,7 +661,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # ConversationHandler для добавления в корзину
     cart_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(nav_product, pattern="^add_")],
         states={
@@ -682,7 +669,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # ConversationHandler для добавления категории
     cat_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), add_category_name)],
         states={
@@ -691,7 +677,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # ConversationHandler для добавления админа
     admin_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^👤 Добавить админа$"), add_admin_id)],
         states={
@@ -700,7 +685,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # ConversationHandler для удаления товара
     delete_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^❌ Удалить товар$"), delete_product)],
         states={
@@ -709,10 +693,8 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
 
-    # Диалоги
     app.add_handler(add_product_conv)
     app.add_handler(order_conv)
     app.add_handler(cart_conv)
@@ -720,12 +702,10 @@ def main():
     app.add_handler(admin_conv)
     app.add_handler(delete_conv)
 
-    # Просмотр каталога
     app.add_handler(CallbackQueryHandler(show_category_products, pattern="^cat_"))
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^nav_"))
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^back_to_cats$"))
 
-    # Общий обработчик сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Бот запущен!")
