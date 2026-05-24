@@ -102,27 +102,12 @@ ADMIN_BUTTONS = [
     ["➕ Добавить товар", "📦 Управление товарами"],
     ["➕ Добавить категорию", "📂 Управление категориями"],
     ["👤 Добавить менеджера", "📋 Заказы"],
-    ["❌ Удалить товар", "🔙 Выйти"],
+    ["🔙 Выйти"],
 ]
 
 CLIENT_BUTTONS = [
     ["📦 Каталог", "🛒 Корзина"]
 ]
-
-ALL_MENU_BUTTONS = {
-    "➕ Добавить товар",
-    "📦 Управление товарами",
-    "📂 Управление категориями",
-    "➕ Добавить категорию",
-    "👤 Добавить менеджера",
-    "📋 Заказы",
-    "❌ Удалить товар",
-    "🔙 Выйти",
-    "📦 Каталог",
-    "🛒 Корзина",
-    "Отмена",
-    "Пропустить",
-}
 
 # =========================================================
 # HELPERS
@@ -279,6 +264,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("new_product", None)
+    context.user_data.pop("edit_product", None)
 
     await update.message.reply_text(
         "❌ Действие отменено.",
@@ -347,10 +333,16 @@ async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for cat in categories
     ]
 
-    await update.message.reply_text(
-        "📂 Выберите категорию для управления:",
-        reply_markup=InlineKeyboardMarkup(kb),
-    )
+    if hasattr(update, "callback_query") and update.callback_query:
+        await update.callback_query.edit_message_text(
+            "📂 Выберите категорию для управления:",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+    else:
+        await update.message.reply_text(
+            "📂 Выберите категорию для управления:",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
 
 
 async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -699,71 +691,254 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("📦 Товаров нет.")
         return
 
-    lines = ["📦 <b>Товары:</b>\n"]
-
+    kb = []
     for p in products:
-        lines.append(
-            f"ID {p['id']} | "
-            f"{sanitize(p['name'])} | "
-            f"{p['price']:,.0f}₽ | "
-            f"остаток {p['stock']}"
-        )
+        kb.append([
+            InlineKeyboardButton(
+                f"ID {p['id']} | {sanitize(p['name'], 30)} | {p['price']:,.0f}₽",
+                callback_data=f"editprod|{p['id']}"
+            )
+        ])
 
     await update.message.reply_text(
-        "\n".join(lines),
+        "📦 Выберите товар для управления:",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+
+
+async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    pid = int(query.data.split("|")[1])
+    product = get_product(pid)
+
+    if not product:
+        await query.edit_message_text("❌ Товар не найден")
+        return
+
+    context.user_data["edit_product"] = product
+
+    kb = [
+        [InlineKeyboardButton("✏️ Изменить название", callback_data=f"editfield|name")],
+        [InlineKeyboardButton("📝 Изменить описание", callback_data=f"editfield|description")],
+        [InlineKeyboardButton("💰 Изменить цену", callback_data=f"editfield|price")],
+        [InlineKeyboardButton("📦 Изменить остаток", callback_data=f"editfield|stock")],
+        [InlineKeyboardButton("📂 Изменить категорию", callback_data=f"editfield|category")],
+        [InlineKeyboardButton("📸 Изменить фото", callback_data=f"editfield|photo")],
+        [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_products")],
+    ]
+
+    await query.edit_message_text(
+        f"📦 Управление товаром: {sanitize(product['name'])}\n\n"
+        f"Цена: {product['price']:,.0f}₽\n"
+        f"Остаток: {product['stock']}\n"
+        f"Категория: {product.get('category', '—')}",
+        reply_markup=InlineKeyboardMarkup(kb),
         parse_mode=ParseMode.HTML,
     )
 
-# =========================================================
-# DELETE PRODUCT
-# =========================================================
 
-async def delete_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🗑 Введите ID товара:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["Отмена"]],
-            resize_keyboard=True,
-        ),
-    )
+async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    return DELETE_PRODUCT_ID
+    field = query.data.split("|")[1]
+    context.user_data["edit_field"] = field
 
-async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompts = {
+        "name": ("📝 Введите новое название:", [["Отмена"]]),
+        "description": ("📝 Введите новое описание или «Пропустить»:", [["Пропустить"], ["Отмена"]]),
+        "price": ("💰 Введите новую цену:", [["Отмена"]]),
+        "stock": ("📦 Введите новый остаток:", [["Отмена"]]),
+    }
+
+    if field in prompts:
+        text, buttons = prompts[field]
+        await query.message.reply_text(
+            text,
+            reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True),
+        )
+        return
+    elif field == "category":
+        categories = load_categories()
+        kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in categories]
+        await query.message.reply_text(
+            "📂 Выберите новую категорию:",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    elif field == "photo":
+        await query.message.reply_text(
+            "📸 Отправьте новое фото или «Пропустить» для удаления:",
+            reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+        )
+        context.user_data["awaiting_photo"] = True
+
+
+async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    field = context.user_data.get("edit_field")
+    product = context.user_data.get("edit_product")
+
+    if not field or not product:
+        return False
+
+    if update.message.text == "Отмена":
+        context.user_data.pop("edit_field", None)
+        await update.message.reply_text(
+            "❌ Изменение отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return True
+
     text = update.message.text.strip()
 
-    if text == "Отмена":
-        return await cancel_conversation(update, context)
+    if field == "name":
+        if not text:
+            await update.message.reply_text("❌ Введите название:")
+            return True
+        product["name"] = text
 
-    try:
-        pid = int(text)
-    except:
-        await update.message.reply_text("❌ Введите число")
-        return DELETE_PRODUCT_ID
+    elif field == "description":
+        if text == "Пропустить":
+            text = ""
+        product["description"] = text
 
+    elif field == "price":
+        try:
+            price = float(text.replace(",", "."))
+        except:
+            await update.message.reply_text("❌ Введите число")
+            return True
+        product["price"] = price
+
+    elif field == "stock":
+        try:
+            stock = int(text)
+        except:
+            await update.message.reply_text("❌ Введите целое число")
+            return True
+        product["stock"] = stock
+
+    # Сохраняем изменения
     products = load_products()
-
-    product = None
-
-    for p in products:
-        if p["id"] == pid:
-            product = p
+    for i, p in enumerate(products):
+        if p["id"] == product["id"]:
+            products[i] = product
             break
-
-    if not product:
-        await update.message.reply_text("❌ Товар не найден")
-        return DELETE_PRODUCT_ID
-
-    products.remove(product)
-
     save_products(products)
 
+    context.user_data.pop("edit_field", None)
+
     await update.message.reply_text(
-        f"✅ Товар '{product['name']}' удалён",
+        f"✅ Товар обновлён",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return True
+
+
+async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    product = context.user_data.get("edit_product")
+    if not product:
+        return
+
+    cat = query.data.split("|")[1]
+    product["category"] = cat
+
+    products = load_products()
+    for i, p in enumerate(products):
+        if p["id"] == product["id"]:
+            products[i] = product
+            break
+    save_products(products)
+
+    context.user_data.pop("edit_field", None)
+    context.user_data.pop("edit_product", None)
+
+    await query.message.reply_text(
+        "✅ Категория обновлена",
         reply_markup=get_reply_markup(update.effective_user.id),
     )
 
-    return ConversationHandler.END
+
+async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_photo"):
+        return False
+
+    product = context.user_data.get("edit_product")
+    if not product:
+        return False
+
+    if update.message.text == "Отмена":
+        context.user_data.pop("awaiting_photo", None)
+        context.user_data.pop("edit_field", None)
+        await update.message.reply_text(
+            "❌ Изменение отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return True
+
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        filename = f"product_{product['id']}.jpg"
+        await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
+        product["photo"] = filename
+    elif update.message.text == "Пропустить":
+        product["photo"] = ""
+
+    products = load_products()
+    for i, p in enumerate(products):
+        if p["id"] == product["id"]:
+            products[i] = product
+            break
+    save_products(products)
+
+    context.user_data.pop("awaiting_photo", None)
+    context.user_data.pop("edit_field", None)
+
+    await update.message.reply_text(
+        "✅ Фото обновлено",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return True
+
+
+async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    pid = int(query.data.split("|")[1])
+    product = get_product(pid)
+
+    if not product:
+        await query.edit_message_text("❌ Товар не найден")
+        return
+
+    if product.get("photo"):
+        path = os.path.join(PHOTOS_DIR, product["photo"])
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except:
+                pass
+
+    products = load_products()
+    products = [p for p in products if p["id"] != pid]
+    save_products(products)
+
+    await query.edit_message_text(f"✅ Товар '{product['name']}' удалён")
+
 
 # =========================================================
 # CATALOG
@@ -1162,9 +1337,18 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Сначала проверяем режим переименования
+    # Проверяем режим переименования категории
     if context.user_data.get("awaiting_rename"):
         return await handle_rename_input(update, context)
+
+    # Проверяем режим редактирования товара
+    if context.user_data.get("edit_field"):
+        return await handle_edit_field(update, context)
+
+    # Проверяем режим редактирования фото
+    if context.user_data.get("awaiting_photo"):
+        if update.message.photo or (update.message.text and update.message.text in ["Пропустить", "Отмена"]):
+            return await handle_photo_edit(update, context)
 
     text = update.message.text
 
@@ -1286,33 +1470,6 @@ def main():
                         add_product_photo,
                     ),
                 ],
-            },
-            fallbacks=[
-                MessageHandler(
-                    filters.Regex("^Отмена$"),
-                    cancel_conversation,
-                )
-            ],
-            allow_reentry=True,
-        )
-    )
-
-    # DELETE PRODUCT
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^❌ Удалить товар$"),
-                    delete_product_prompt,
-                )
-            ],
-            states={
-                DELETE_PRODUCT_ID: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        delete_product,
-                    )
-                ]
             },
             fallbacks=[
                 MessageHandler(
@@ -1459,6 +1616,42 @@ def main():
         CallbackQueryHandler(
             manage_categories,
             pattern="^back_to_categories$",
+        )
+    )
+
+    # Product management
+    app.add_handler(
+        CallbackQueryHandler(
+            edit_product_menu,
+            pattern="^editprod\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            edit_product_field_prompt,
+            pattern="^editfield\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            set_product_category,
+            pattern="^setcat\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            delete_product_inline,
+            pattern="^deleteprod\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            list_products_admin,
+            pattern="^back_to_products$",
         )
     )
 
