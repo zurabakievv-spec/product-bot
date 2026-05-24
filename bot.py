@@ -287,25 +287,6 @@ def is_cancel_button(text: str) -> bool:
     return text in CANCEL_BUTTONS
 
 
-async def safe_reply(update: Update, text: str, reply_markup=None, parse_mode=None):
-    """Безопасная отправка сообщений"""
-    try:
-        if hasattr(update, 'callback_query') and update.callback_query:
-            message = update.callback_query.message
-        elif hasattr(update, 'message') and update.message:
-            message = update.message
-        else:
-            return
-        
-        await message.reply_text(
-            text, 
-            reply_markup=reply_markup, 
-            parse_mode=parse_mode
-        )
-    except TelegramError as e:
-        log.error(f"Failed to send message: {e}")
-
-
 def get_reply_markup_for_user(user_id: int):
     """Получить клавиатуру в зависимости от роли"""
     return admin_menu() if is_admin(user_id) else main_keyboard()
@@ -383,13 +364,13 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать список категорий"""
     cats = get_categories()
     message = None
+    is_callback = False
     
     if hasattr(update, 'callback_query') and update.callback_query:
         message = update.callback_query.message
         is_callback = True
     else:
         message = update.message
-        is_callback = False
     
     if not cats:
         text = "📂 Каталог пока пуст."
@@ -471,7 +452,7 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Удаляем старое сообщение с категориями
                     try:
                         await update.callback_query.message.delete()
-                    except:
+                    except Exception:
                         pass
                 else:
                     await update.message.reply_photo(
@@ -526,17 +507,23 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_TO_CART_QTY
 
 
+async def cancel_add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена добавления в корзину"""
+    user_id = update.effective_user.id
+    await update.message.reply_text(
+        "❌ Добавление отменено.", 
+        reply_markup=get_reply_markup_for_user(user_id)
+    )
+    return ConversationHandler.END
+
+
 async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление товара в корзину"""
     text = update.message.text
     user_id = update.effective_user.id
     
     if is_cancel_button(text):
-        await update.message.reply_text(
-            "❌ Добавление отменено.", 
-            reply_markup=get_reply_markup_for_user(user_id)
-        )
-        return ConversationHandler.END
+        return await cancel_add_to_cart(update, context)
     
     if is_menu_button(text):
         await update.message.reply_text(
@@ -808,9 +795,7 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = "8" + phone[2:]
     elif phone.startswith("7"):
         phone = "8" + phone[1:]
-    elif phone.startswith("8"):
-        pass
-    else:
+    elif not phone.startswith("8"):
         phone = "8" + phone
 
     if not phone.isdigit() or len(phone) != 11:
@@ -983,4 +968,16 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return NEW_CATEGORY_NAME
     
     if len(name) > 50:
-        await update.message.reply
+        await update.message.reply_text("❌ Название категории слишком длинное (макс. 50 символов).")
+        return NEW_CATEGORY_NAME
+
+    cats = load_categories()
+    if name in cats:
+        await update.message.reply_text(
+            "❌ Такая категория уже существует!", 
+            reply_markup=admin_menu()
+        )
+        return ConversationHandler.END
+
+    cats.append(name)
+    save_categories(c
