@@ -648,7 +648,6 @@ async def cart_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("🛒 Корзина пуста. Нечего оформлять.")
             return ConversationHandler.END
         
-        # Проверяем актуальность товаров
         for item in cart:
             product = get_product_by_id(item["id"])
             if not product:
@@ -718,7 +717,6 @@ async def edit_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["cart"] = cart
         await query.edit_message_text(f"🗑 {sanitize_string(removed['name'])} удалён из корзины.")
         
-        # Показываем обновленную корзину
         if cart:
             await view_cart(update, context)
         else:
@@ -789,7 +787,6 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         phone = update.message.text.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
     
-    # Нормализация номера
     if phone.startswith("+7"):
         phone = "8" + phone[2:]
     elif phone.startswith("7"):
@@ -855,20 +852,17 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total
         )
         
-        # Отправляем заказ в группу
         await context.bot.send_message(
             GROUP_CHAT_ID, 
             format_order_message(order), 
             parse_mode=ParseMode.HTML
         )
         
-        # Уведомляем клиента
         await update.message.reply_text(
             f"✅ Заказ №{order['id']} оформлен! Мы свяжемся с вами в ближайшее время.",
             reply_markup=get_reply_markup_for_user(user_id)
         )
         
-        # Очищаем корзину
         context.user_data["cart"] = []
         
     except TelegramError as e:
@@ -910,7 +904,6 @@ async def add_admin_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите числовой ID:")
         return ADD_ADMIN_ID
 
-    # Проверяем существование пользователя
     try:
         user = await context.bot.get_chat(new_id)
         user_name = user.full_name or user.username or str(new_id)
@@ -1093,7 +1086,6 @@ async def delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     cat = query.data.split("|", 1)[1]
 
-    # Проверяем, есть ли товары в категории
     products_in_cat = [p for p in load_products() if p.get("category") == cat]
     if products_in_cat:
         await query.answer(
@@ -1380,21 +1372,8 @@ def main():
     """Точка входа"""
     init_storage()
     
-    # Проверяем доступ к группе
-    try:
-        import asyncio
-        async def check_group():
-            bot = Bot(token=BOT_TOKEN)
-            await bot.get_chat(GROUP_CHAT_ID)
-            log.info(f"✅ Доступ к группе {GROUP_CHAT_ID} подтвержден")
-        asyncio.get_event_loop().run_until_complete(check_group())
-    except Exception as e:
-        log.error(f"❌ Нет доступа к группе {GROUP_CHAT_ID}: {e}")
-        log.error("Убедитесь, что бот добавлен в группу и имеет права администратора")
-    
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Conversation handlers
     add_product_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_name_new)],
         states={
@@ -1472,7 +1451,6 @@ def main():
         allow_reentry=True,
     )
 
-    # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(add_product_conv)
     app.add_handler(order_conv)
