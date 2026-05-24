@@ -172,7 +172,16 @@ def save_orders(data):
 
 
 def load_admins():
-    return safe_load_json("admins.json", [])
+    raw = safe_load_json("admins.json", [])
+    if isinstance(raw, list):
+        out = []
+        for x in raw:
+            try:
+                out.append(int(x))
+            except (ValueError, TypeError):
+                pass
+        return out
+    return []
 
 
 def save_admins(data):
