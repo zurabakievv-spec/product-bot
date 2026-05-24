@@ -100,7 +100,7 @@ os.makedirs(PHOTOS_DIR, exist_ok=True)
 
 ADMIN_BUTTONS = [
     ["➕ Добавить товар", "📦 Управление товарами"],
-    ["📂 Управление категориями", "➕ Добавить категорию"],
+    ["➕ Добавить категорию", "📂 Управление категориями"],
     ["👤 Добавить менеджера", "📋 Заказы"],
     ["❌ Удалить товар", "🔙 Выйти"],
 ]
@@ -327,6 +327,184 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     return ConversationHandler.END
+
+# =========================================================
+# MANAGE CATEGORIES
+# =========================================================
+
+async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    categories = load_categories()
+
+    if not categories:
+        await update.message.reply_text("📂 Категорий пока нет")
+        return
+
+    kb = [
+        [InlineKeyboardButton(cat, callback_data=f"managecat|{cat}")]
+        for cat in categories
+    ]
+
+    await update.message.reply_text(
+        "📂 Выберите категорию для управления:",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+
+
+async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    cat = query.data.split("|", 1)[1]
+
+    kb = [
+        [InlineKeyboardButton("✏️ Переименовать", callback_data=f"renamecat|{cat}")],
+        [InlineKeyboardButton("🗑 Удалить", callback_data=f"deletecat|{cat}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")],
+    ]
+
+    await query.edit_message_text(
+        f"📂 Управление категорией: {sanitize(cat)}",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    cat = query.data.split("|", 1)[1]
+    
+    context.user_data["rename_old_cat"] = cat
+    context.user_data["awaiting_rename"] = True
+
+    await query.edit_message_text(
+        f"✏️ Введите новое название для категории '{cat}'\n"
+        f"Или нажмите «Отмена»:"
+    )
+
+
+async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_rename"):
+        return False
+    
+    if not is_admin(update.effective_user.id):
+        context.user_data.pop("awaiting_rename", None)
+        context.user_data.pop("rename_old_cat", None)
+        return False
+
+    text = update.message.text.strip()
+
+    if text == "Отмена":
+        context.user_data.pop("awaiting_rename", None)
+        context.user_data.pop("rename_old_cat", None)
+        await update.message.reply_text(
+            "❌ Переименование отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return True
+
+    old_name = context.user_data.get("rename_old_cat")
+
+    if not old_name:
+        context.user_data.pop("awaiting_rename", None)
+        return False
+
+    if not text:
+        await update.message.reply_text("❌ Введите название:")
+        return True
+
+    if len(text) > 50:
+        await update.message.reply_text("❌ Слишком длинное название (макс. 50 символов)")
+        return True
+
+    cats = load_categories()
+
+    if text in cats and text != old_name:
+        await update.message.reply_text("❌ Категория с таким названием уже существует")
+        return True
+
+    if old_name in cats:
+        cats.remove(old_name)
+        cats.append(text)
+        save_categories(cats)
+
+    products = load_products()
+    for p in products:
+        if p.get("category") == old_name:
+            p["category"] = text
+    save_products(products)
+
+    context.user_data.pop("awaiting_rename", None)
+    context.user_data.pop("rename_old_cat", None)
+
+    await update.message.reply_text(
+        f"✅ Категория '{old_name}' переименована в '{text}'",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return True
+
+
+async def delete_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    cat = query.data.split("|", 1)[1]
+
+    products_in_cat = len([
+        p for p in load_products()
+        if p.get("category") == cat
+    ])
+
+    warning = ""
+    if products_in_cat > 0:
+        warning = f"\n⚠️ В категории {products_in_cat} товаров. Они останутся без категории."
+
+    kb = [
+        [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirmdel|{cat}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")],
+    ]
+
+    await query.edit_message_text(
+        f"🗑 Удалить категорию '{cat}'?{warning}",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+
+
+async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(update.effective_user.id):
+        return
+
+    cat = query.data.split("|", 1)[1]
+
+    cats = load_categories()
+
+    if cat in cats:
+        cats.remove(cat)
+        save_categories(cats)
+
+    products = load_products()
+    for p in products:
+        if p.get("category") == cat:
+            p["category"] = ""
+    save_products(products)
+
+    await query.edit_message_text(f"✅ Категория '{cat}' удалена")
 
 # =========================================================
 # ADD PRODUCT
@@ -984,6 +1162,10 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Сначала проверяем режим переименования
+    if context.user_data.get("awaiting_rename"):
+        return await handle_rename_input(update, context)
+
     text = update.message.text
 
     if text == "📦 Каталог":
@@ -994,6 +1176,9 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📦 Управление товарами":
         return await list_products_admin(update, context)
+
+    if text == "📂 Управление категориями":
+        return await manage_categories(update, context)
 
     if text == "📋 Заказы":
         return await show_orders(update, context)
@@ -1239,6 +1424,41 @@ def main():
         CallbackQueryHandler(
             show_products,
             pattern="^showcat\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            manage_category_action,
+            pattern="^managecat\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            rename_category_prompt,
+            pattern="^renamecat\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            delete_category_prompt,
+            pattern="^deletecat\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            delete_category_confirm,
+            pattern="^confirmdel\\|",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            manage_categories,
+            pattern="^back_to_categories$",
         )
     )
 
