@@ -861,19 +861,36 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     p = products[index]
     text = format_product(p)
+    
+    # Формируем кнопки навигации с проверкой границ
     nav = []
     if len(products) > 1:
-        nav = [
-            InlineKeyboardButton("⬅️", callback_data="nav_prev"),
-            InlineKeyboardButton(f"{index + 1}/{len(products)}", callback_data="nav_none"),
-            InlineKeyboardButton("➡️", callback_data="nav_next"),
-        ]
+        nav_buttons = []
+        
+        # Кнопка "Назад" только если не первый товар
+        if index > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_prev"))
+        else:
+            nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_none"))
+        
+        # Счетчик
+        nav_buttons.append(InlineKeyboardButton(f"{index + 1}/{len(products)}", callback_data="nav_none"))
+        
+        # Кнопка "Вперед" только если не последний товар
+        if index < len(products) - 1:
+            nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_next"))
+        else:
+            nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_none"))
+        
+        nav = nav_buttons
+    
     rows = []
     if nav:
         rows.append(nav)
     if int(p["stock"]) > 0:
         rows.append([InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"addcart|{p['id']}")])
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
+    
     photo_path = os.path.join(PHOTOS_DIR, p["photo"]) if p.get("photo") else None
     try:
         if photo_path and os.path.exists(photo_path):
@@ -1311,34 +1328,59 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    msg = [
-        f"🛒 <b>Заказ #{order['id']}</b>",
-        f"👤 {sanitize(order['client_name'])}",
-        f"📞 {sanitize(order['phone'])}",
+    # Формируем сообщение для группы
+    msg_lines = [
+        f"🛒 <b>Новый заказ #{order['id']}</b>",
         "",
+        f"👤 Имя: {sanitize(order['client_name'])}",
+        f"📞 Телефон: {sanitize(order['phone'])}",
     ]
-    if text:
-        msg.append(f"💬 {sanitize(text)}")
-        msg.append("")
-    for item in cart:
-        msg.append(f"{sanitize(item['name'])} × {item['quantity']}")
-    msg.append("")
-    msg.append(f"💰 Итого: {total:,.0f}₽")
     
+    if order['comment']:
+        msg_lines.append(f"💬 Комментарий: {sanitize(order['comment'])}")
+    
+    msg_lines.append("")
+    msg_lines.append("📋 <b>Состав заказа:</b>")
+    
+    for item in cart:
+        msg_lines.append(f"— {sanitize(item['name'])} × {item['quantity']} = {item['price'] * item['quantity']:,.0f}₽")
+    
+    msg_lines.append("")
+    msg_lines.append(f"💰 <b>Итого: {total:,.0f}₽</b>")
+    
+    msg = "\n".join(msg_lines)
+    
+    # Отправляем в группу с детальным логированием
     try:
+        log.info(f"Attempting to send order #{order['id']} to group {GROUP_CHAT_ID}")
+        
         await context.bot.send_message(
-            GROUP_CHAT_ID,
-            "\n".join(msg),
+            chat_id=GROUP_CHAT_ID,
+            text=msg,
             parse_mode=ParseMode.HTML,
         )
-        log.info(f"Order #{order['id']} sent to group {GROUP_CHAT_ID}")
-    except TelegramError as e:
-        log.error(f"Failed to send order to group: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка отправки заказа. Администратор уже уведомлён.",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
+        
+        log.info(f"Order #{order['id']} successfully sent to group {GROUP_CHAT_ID}")
+        
+    except Exception as e:
+        log.error(f"Failed to send order #{order['id']} to group {GROUP_CHAT_ID}: {e}")
+        log.error(f"Group chat ID type: {type(GROUP_CHAT_ID)}, value: {GROUP_CHAT_ID}")
+        
+        # Пробуем отправить без форматирования
+        try:
+            plain_msg = msg.replace("<b>", "").replace("</b>", "")
+            await context.bot.send_message(
+                chat_id=GROUP_CHAT_ID,
+                text=plain_msg,
+            )
+            log.info(f"Order #{order['id']} sent to group without HTML formatting")
+        except Exception as e2:
+            log.error(f"Failed to send plain text order: {e2}")
+            await update.message.reply_text(
+                "❌ Ошибка отправки заказа. Попробуйте позже или свяжитесь с администратором напрямую.",
+                reply_markup=get_reply_markup(update.effective_user.id),
+            )
+            return ConversationHandler.END
     
     context.user_data["cart"] = []
     await update.message.reply_text(
@@ -1430,7 +1472,17 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     init_storage()
+    
+    # Очистка вебхуков и pending updates
+    import asyncio
+    
     app = Application.builder().token(BOT_TOKEN).build()
+    
+    async def cleanup():
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        log.info("Cleaned up webhook and pending updates")
+    
+    asyncio.get_event_loop().run_until_complete(cleanup())
     
     app.add_handler(CommandHandler("start", start))
     
@@ -1508,7 +1560,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
     
     log.info("BOT STARTED")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
