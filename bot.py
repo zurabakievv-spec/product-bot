@@ -571,47 +571,27 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not product:
         return ConversationHandler.END
     
-    # Проверяем текст только если он есть
-    if update.message.text and update.message.text == "Отмена":
-        return await cancel_action(update, context)
+    product["id"] = next_product_id()
     
-    if update.message.text and update.message.text == "Пропустить":
-        # Пропускаем фото
-        pass
-    elif update.message.photo:
-        # Сохраняем фото
+    if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        product["id"] = next_product_id()
         filename = f"product_{product['id']}.jpg"
         await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
         product["photo"] = filename
-        
-        products = load_products()
-        products.append(product)
-        save_products(products)
-        
-        await update.message.reply_text(
-            f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        context.user_data.pop("new_product", None)
-        return ConversationHandler.END
     else:
-        # Нажали "Пропустить"
-        product["id"] = next_product_id()
         product["photo"] = ""
-        
-        products = load_products()
-        products.append(product)
-        save_products(products)
-        
-        await update.message.reply_text(
-            f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        context.user_data.pop("new_product", None)
-        return ConversationHandler.END
+    
+    products = load_products()
+    products.append(product)
+    save_products(products)
+    
+    await update.message.reply_text(
+        f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    context.user_data.pop("new_product", None)
+    return ConversationHandler.END
 
 
 # =========================================================
@@ -621,31 +601,61 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    products = load_products()
-    if not products:
-        if hasattr(update, "callback_query") and update.callback_query:
-            await update.callback_query.edit_message_text("📦 Товаров нет.")
-        else:
-            await update.message.reply_text("📦 Товаров нет.")
+    
+    categories = load_categories()
+    if not categories:
+        await update.message.reply_text("📂 Сначала создайте категории")
         return
-    kb = []
-    for p in products:
-        kb.append([
-            InlineKeyboardButton(
-                f"ID {p['id']} | {sanitize(p['name'], 30)} | {p['price']:,.0f}₽",
-                callback_data=f"editprod|{p['id']}"
-            )
-        ])
+    
+    kb = [[InlineKeyboardButton(cat, callback_data=f"admincat|{cat}")] for cat in categories]
+    
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
-            "📦 Выберите товар для управления:",
+            "📂 Выберите категорию для управления товарами:",
             reply_markup=InlineKeyboardMarkup(kb),
         )
     else:
         await update.message.reply_text(
-            "📦 Выберите товар для управления:",
+            "📂 Выберите категорию для управления товарами:",
             reply_markup=InlineKeyboardMarkup(kb),
         )
+
+
+async def show_admin_category_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    cat = query.data.split("|", 1)[1]
+    products = [p for p in load_products() if p["category"] == cat]
+    
+    if not products:
+        await query.edit_message_text(
+            f"📦 В категории '{cat}' нет товаров",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")
+            ]])
+        )
+        return
+    
+    kb = []
+    for p in products:
+        stock = int(p.get("stock", 0))
+        status = "🟢" if stock > 0 else "🔴"
+        kb.append([
+            InlineKeyboardButton(
+                f"{status} {sanitize(p['name'], 30)} | {p['price']:,.0f}₽ | ост: {stock}",
+                callback_data=f"editprod|{p['id']}"
+            )
+        ])
+    kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
+    
+    await query.edit_message_text(
+        f"📦 Товары в категории '{cat}':",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
 
 
 async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -679,7 +689,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📂 Изменить категорию", callback_data="editfield|category")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="editfield|photo")],
         [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_products")],
+        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{product.get('category', '')}")],
     ]
     
     photo_path = os.path.join(PHOTOS_DIR, product["photo"]) if product.get("photo") else None
@@ -841,7 +851,7 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not product:
         return False
     
-    if update.message.text == "Отмена":
+    if update.message.text and update.message.text == "Отмена":
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
         await update.message.reply_text(
@@ -1707,7 +1717,8 @@ def main():
             ADD_PRODUCT_CATEGORY: [CallbackQueryHandler(add_product_category, pattern="^cat\\|")],
             ADD_PRODUCT_PHOTO: [
                 MessageHandler(filters.PHOTO, add_product_photo),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_photo),
+                MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
+                MessageHandler(filters.Regex("^Отмена$"), cancel_action),
             ],
         },
         fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
@@ -1747,16 +1758,17 @@ def main():
     ))
     
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
+    app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
     app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
     app.add_handler(CallbackQueryHandler(rename_category_prompt, pattern="^renamecat\\|"))
     app.add_handler(CallbackQueryHandler(delete_category_prompt, pattern="^deletecat\\|"))
     app.add_handler(CallbackQueryHandler(delete_category_confirm, pattern="^confirmdel\\|"))
     app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
+    app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
     app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
     app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
     app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
     app.add_handler(CallbackQueryHandler(delete_product_inline, pattern="^deleteprod\\|"))
-    app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_products$"))
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|nav_none|back_to_cats)$"))
     app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
     app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
