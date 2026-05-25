@@ -853,11 +853,14 @@ async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_photo"):
         return False
+    
     product = context.user_data.get("edit_product")
     if not product:
+        context.user_data.pop("awaiting_photo", None)
         return False
     
-    if update.message.text and update.message.text == "Отмена":
+    # Проверяем Отмену
+    if update.message and update.message.text and update.message.text == "Отмена":
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
         await update.message.reply_text(
@@ -866,7 +869,9 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return True
     
-    if update.message.photo:
+    # Проверяем фото
+    if update.message and update.message.photo:
+        # Удаляем старое фото
         if product.get("photo"):
             old_path = os.path.join(PHOTOS_DIR, product["photo"])
             if os.path.exists(old_path):
@@ -875,12 +880,14 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
         
+        # Сохраняем новое
         photo = update.message.photo[-1]
         file = await photo.get_file()
         filename = f"product_{product['id']}.jpg"
         await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
         product["photo"] = filename
         
+        # Обновляем в хранилище
         products = load_products()
         for i, p in enumerate(products):
             if p["id"] == product["id"]:
@@ -888,9 +895,11 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
         save_products(products)
         
+        # Очищаем состояние
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
         
+        # Показываем результат
         product_text = format_product(product)
         admin_info = (
             f"\n\n📋 <b>Информация:</b>\n"
@@ -899,7 +908,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         photo_path = os.path.join(PHOTOS_DIR, product["photo"])
-        
         with open(photo_path, "rb") as ph:
             await update.message.reply_photo(
                 photo=ph,
@@ -909,7 +917,7 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return True
     
-    return True
+    return False
 
 
 async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1657,22 +1665,21 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Обработка режима ожидания фото
+    # 1. Самая первая проверка — режим ожидания фото
     if context.user_data.get("awaiting_photo"):
         if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
             return await handle_photo_edit(update, context)
-        # Если пришло что-то другое в режиме ожидания фото — игнорируем
         return
 
-    # Обработка режима переименования
+    # 2. Режим переименования
     if context.user_data.get("awaiting_rename"):
         return await handle_rename_input(update, context)
 
-    # Обработка режима редактирования поля
+    # 3. Режим редактирования поля товара
     if context.user_data.get("edit_field"):
         return await handle_edit_field(update, context)
 
-    # Обычные кнопки меню
+    # 4. Обычные кнопки меню
     text = update.message.text if update.message else None
     
     if text == "📦 Каталог":
@@ -1788,6 +1795,7 @@ def main():
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
+    app.add_handler(MessageHandler(filters.PHOTO, menu_router))
     
     log.info("BOT STARTED")
     app.run_polling(drop_pending_updates=True)
