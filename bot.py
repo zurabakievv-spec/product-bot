@@ -639,18 +639,26 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
     context.user_data["edit_field"] = field
 
     if field in ["name", "description", "price", "stock"]:
-        prompts = {
-            "name": ("📝 Введите новое название:", get_cancel_keyboard()),
-            "description": ("📝 Введите новое описание или «Пропустить": ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)),
-            "price": ("💰 Введите новую цену:", get_cancel_keyboard()),
-            "stock": ("📦 Введите новый остаток:", get_cancel_keyboard()),
-        }
-        if field == "description":
-            text = "📝 Введите новое описание или «Пропустить»:"
-            kb = ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)
-        else:
-            text, kb = prompts[field]
-        await query.message.reply_text(text, reply_markup=kb)
+        if field == "name":
+            await query.message.reply_text(
+                "📝 Введите новое название:",
+                reply_markup=get_cancel_keyboard(),
+            )
+        elif field == "description":
+            await query.message.reply_text(
+                "📝 Введите новое описание или «Пропустить»:",
+                reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+            )
+        elif field == "price":
+            await query.message.reply_text(
+                "💰 Введите новую цену:",
+                reply_markup=get_cancel_keyboard(),
+            )
+        elif field == "stock":
+            await query.message.reply_text(
+                "📦 Введите новый остаток:",
+                reply_markup=get_cancel_keyboard(),
+            )
     elif field == "category":
         categories = load_categories()
         kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in categories]
@@ -663,20 +671,7 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
         )
         context.user_data["awaiting_photo"] = True
 
-
-async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    field = context.user_data.get("edit_field")
-    product = context.user_data.get("edit_product")
-    if not field or not product:
-        return False
-    if update.message.text == "Отмена":
-        reset_session(context)
-        await update.message.reply_text(
-            "❌ Изменение отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return True
-
+    
     text = update.message.text.strip()
 
     if field == "name":
