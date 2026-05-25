@@ -1455,10 +1455,15 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Отправка в группу
+    # Отправка в группу с логированием
     group_id = os.getenv("GROUP_CHAT_ID")
+    log.info(f"GROUP_CHAT_ID from env: {group_id}")
+    
     if group_id:
         try:
+            group_id_int = int(group_id)
+            log.info(f"Sending to group: {group_id_int}")
+            
             msg = (
                 f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
                 f"👤 Имя: {sanitize(order['client_name'])}\n"
@@ -1472,14 +1477,28 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"\n— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽"
             msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
             
-            await context.bot.send_message(
-                chat_id=int(group_id),
+            result = await context.bot.send_message(
+                chat_id=group_id_int,
                 text=msg,
                 parse_mode=ParseMode.HTML,
             )
-            log.info(f"Order #{order['id']} sent to group")
+            log.info(f"✅ Order #{order['id']} sent to group! Message ID: {result.message_id}")
+            
         except Exception as e:
-            log.error(f"Failed to send to group: {e}")
+            log.error(f"❌ Failed to send to group: {type(e).__name__}: {e}")
+            
+            # Пробуем без HTML
+            try:
+                plain_msg = msg.replace("<b>", "").replace("</b>", "")
+                await context.bot.send_message(
+                    chat_id=group_id_int,
+                    text=plain_msg,
+                )
+                log.info(f"✅ Order #{order['id']} sent to group (plain text)")
+            except Exception as e2:
+                log.error(f"❌ Plain text also failed: {e2}")
+    else:
+        log.error("❌ GROUP_CHAT_ID is not set in environment!")
     
     context.user_data["cart"] = []
     await update.message.reply_text(
