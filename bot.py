@@ -36,15 +36,9 @@ from telegram.error import TelegramError
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN not found")
-
-if not GROUP_CHAT_ID:
-    raise RuntimeError("GROUP_CHAT_ID not found")
-
-GROUP_CHAT_ID = int(GROUP_CHAT_ID)
 
 # =========================================================
 # LOGGING
@@ -95,6 +89,7 @@ ADMIN_BUTTONS = [
     ["➕ Добавить товар", "📦 Управление товарами"],
     ["➕ Добавить категорию", "📂 Управление категориями"],
     ["👤 Добавить менеджера", "📋 Заказы"],
+    ["📢 Установить чат для заказов"],
 ]
 
 CLIENT_BUTTONS = [
@@ -144,6 +139,7 @@ def init_storage():
         "orders.json": [],
         "admins.json": [],
         "categories.json": [],
+        "group_id.json": None,
     }
     for filename, default in defaults.items():
         path = data_path(filename)
@@ -194,6 +190,19 @@ def load_categories():
 
 def save_categories(data):
     safe_save_json("categories.json", list(set(data)))
+
+
+def load_group_id():
+    return safe_load_json("group_id.json", None)
+
+
+def save_group_id(chat_id):
+    safe_save_json("group_id.json", int(chat_id))
+
+
+def get_group_id():
+    """Получить ID группы для отправки заказов"""
+    return load_group_id()
 
 
 # =========================================================
@@ -256,13 +265,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     contact_info = (
-        "📍 Для наших клиентов доступен удобный пункт самовывоза по адресу: Пупкина залупкина д1\n"
-        "🌐 Наш сайт: https://oduvan-farm.com\n"
-        "📞 Телефон: +7(495)6453872"
+        "📍 Пункт самовывоза: Пупкина залупкина д1\n"
+        "🌐 Сайт: https://oduvan-farm.com\n"
+        "📞 Телефон: 7 (495) 645 3872"
     )
     
     if is_admin(user_id):
-        text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
+        text = f"👋 Добро пожаловать, менеджер!"
+        # Показываем статус группы для заказов
+        group_id = get_group_id()
+        if group_id:
+            try:
+                chat = await context.bot.get_chat(group_id)
+                text += f"\n\n📢 Заказы отправляются в: {chat.title}"
+            except:
+                text += f"\n\n⚠️ Группа ID {group_id} недоступна"
+        else:
+            text += "\n\n⚠️ Чат для заказов не установлен"
     else:
         text = f"👋 Добро пожаловать!\n\n{contact_info}"
     
@@ -291,6 +310,35 @@ async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_reply_markup(update.effective_user.id),
     )
     return ConversationHandler.END
+
+
+# =========================================================
+# SET GROUP CHAT
+# =========================================================
+
+async def set_group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    
+    chat_id = update.effective_chat.id
+    
+    if update.effective_chat.type in ['group', 'supergroup']:
+        save_group_id(chat_id)
+        await update.message.reply_text(
+            f"✅ Эта группа установлена для получения заказов!\nID: {chat_id}",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+    else:
+        group_id = get_group_id()
+        status = f"Текущий ID: {group_id}" if group_id else "не установлен"
+        await update.message.reply_text(
+            f"📢 Чтобы установить группу для заказов:\n\n"
+            f"1. Добавьте бота в группу\n"
+            f"2. Напишите эту команду в группе\n"
+            f"3. ID группы сохранится автоматически\n\n"
+            f"Статус: {status}",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
 
 
 # =========================================================
@@ -1451,56 +1499,33 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    msg_lines = [
-        f"🛒 <b>Новый заказ #{order['id']}</b>",
-        "",
-        f"👤 Имя: {sanitize(order['client_name'])}",
-        f"📞 Телефон: {sanitize(order['phone'])}",
-    ]
-    
-    if order['comment']:
-        msg_lines.append(f"💬 Комментарий: {sanitize(order['comment'])}")
-    
-    msg_lines.append("")
-    msg_lines.append("📋 <b>Состав заказа:</b>")
-    
-    for item in cart:
-        msg_lines.append(f"— {sanitize(item['name'])} × {item['quantity']} = {item['price'] * item['quantity']:,.0f}₽")
-    
-    msg_lines.append("")
-    msg_lines.append(f"💰 <b>Итого: {total:,.0f}₽</b>")
-    
-    msg = "\n".join(msg_lines)
-    
-    try:
-        log.info(f"Attempting to send order #{order['id']} to group {GROUP_CHAT_ID}")
-        
-        await context.bot.send_message(
-            chat_id=GROUP_CHAT_ID,
-            text=msg,
-            parse_mode=ParseMode.HTML,
-        )
-        
-        log.info(f"Order #{order['id']} successfully sent to group {GROUP_CHAT_ID}")
-        
-    except Exception as e:
-        log.error(f"Failed to send order #{order['id']} to group {GROUP_CHAT_ID}: {e}")
-        log.error(f"Group chat ID type: {type(GROUP_CHAT_ID)}, value: {GROUP_CHAT_ID}")
-        
+    # Отправляем заказ в группу если она установлена
+    group_id = get_group_id()
+    if group_id:
         try:
-            plain_msg = msg.replace("<b>", "").replace("</b>", "")
+            msg = (
+                f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
+                f"👤 Имя: {sanitize(order['client_name'])}\n"
+                f"📞 Телефон: {sanitize(order['phone'])}"
+            )
+            if order['comment']:
+                msg += f"\n💬 Комментарий: {sanitize(order['comment'])}"
+            msg += "\n\n📋 <b>Состав заказа:</b>"
+            for item in cart:
+                item_total = item['price'] * item['quantity']
+                msg += f"\n— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽"
+            msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
+            
             await context.bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=plain_msg,
+                chat_id=group_id,
+                text=msg,
+                parse_mode=ParseMode.HTML,
             )
-            log.info(f"Order #{order['id']} sent to group without HTML formatting")
-        except Exception as e2:
-            log.error(f"Failed to send plain text order: {e2}")
-            await update.message.reply_text(
-                "❌ Ошибка отправки заказа. Попробуйте позже или свяжитесь с администратором напрямую.",
-                reply_markup=get_reply_markup(update.effective_user.id),
-            )
-            return ConversationHandler.END
+            log.info(f"Order #{order['id']} sent to group {group_id}")
+        except Exception as e:
+            log.error(f"Failed to send order to group: {e}")
+    else:
+        log.info(f"Order #{order['id']} saved but no group configured")
     
     context.user_data["cart"] = []
     await update.message.reply_text(
@@ -1668,6 +1693,8 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await manage_categories(update, context)
     if text == "📋 Заказы":
         return await show_orders(update, context)
+    if text == "📢 Установить чат для заказов":
+        return await set_group_chat(update, context)
     await update.message.reply_text(
         "Используйте кнопки меню",
         reply_markup=get_reply_markup(update.effective_user.id),
