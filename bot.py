@@ -253,9 +253,23 @@ def get_cancel_keyboard():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("cart", [])
+    user_id = update.effective_user.id
+    
+    contact_info = (
+        "📍 Для наших клиентов доступен удобный пункт самовывоза по адресу: Пупкина залупкина д1\n"
+        "🌐 Наш сайт: https://oduvan-farm.com\n"
+        "📞 Телефон: +7(495)6453872"
+    )
+    
+    if is_admin(user_id):
+        text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
+    else:
+        text = f"👋 Добро пожаловать!\n\n{contact_info}"
+    
     await update.message.reply_text(
-        "👋 Добро пожаловать!",
-        reply_markup=get_reply_markup(update.effective_user.id),
+        text,
+        reply_markup=get_reply_markup(user_id),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -631,15 +645,12 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data["edit_product"] = product
     
-    # Форматируем карточку товара как для покупателя
     product_text = format_product(product)
     
-    # Добавляем информацию для админа
     admin_info = (
         f"\n\n📋 <b>Информация для менеджера:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}\n"
-        f"Фото: {'Есть' if product.get('photo') else 'Нет'}"
+        f"Категория: {sanitize(product.get('category', '—'))}"
     )
     
     full_text = product_text + admin_info
@@ -655,10 +666,11 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_products")],
     ]
     
-    # Отправляем фото если есть
     photo_path = os.path.join(PHOTOS_DIR, product["photo"]) if product.get("photo") else None
     
     try:
+        await query.message.delete()
+        
         if photo_path and os.path.exists(photo_path):
             with open(photo_path, "rb") as ph:
                 await query.message.reply_photo(
@@ -667,12 +679,8 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(kb),
                 )
-            try:
-                await query.message.delete()
-            except:
-                pass
         else:
-            await query.edit_message_text(
+            await query.message.reply_text(
                 full_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(kb),
@@ -753,7 +761,6 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
         product["stock"] = stock
     
-    # Сохраняем изменения
     products = load_products()
     for i, p in enumerate(products):
         if p["id"] == product["id"]:
@@ -763,13 +770,11 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data.pop("edit_field", None)
     
-    # Показываем обновленную карточку товара
     product_text = format_product(product)
     admin_info = (
         f"\n\n📋 <b>Информация:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}\n"
-        f"Фото: {'Есть' if product.get('photo') else 'Нет'}"
+        f"Категория: {sanitize(product.get('category', '—'))}"
     )
     
     await update.message.reply_text(
@@ -799,12 +804,11 @@ async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.pop("edit_field", None)
     context.user_data.pop("edit_product", None)
     
-    # Показываем обновленную карточку
     product_text = format_product(product)
     admin_info = (
         f"\n\n📋 <b>Информация:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}\n"
+        f"Категория: {sanitize(product.get('category', '—'))}"
     )
     
     await query.message.reply_text(
@@ -856,12 +860,11 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("awaiting_photo", None)
     context.user_data.pop("edit_field", None)
     
-    # Показываем обновленную карточку с фото
     product_text = format_product(product)
     admin_info = (
         f"\n\n📋 <b>Информация:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}\n"
+        f"Категория: {sanitize(product.get('category', '—'))}"
     )
     
     photo_path = os.path.join(PHOTOS_DIR, product["photo"]) if product.get("photo") else None
@@ -948,37 +951,39 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p = products[index]
     text = format_product(p)
     
-    # Формируем кнопки навигации с проверкой границ
-    nav = []
+    rows = []
+    
     if len(products) > 1:
         nav_buttons = []
         
-        # Кнопка "Назад" только если не первый товар
         if index > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_prev"))
         else:
             nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_none"))
         
-        # Счетчик
         nav_buttons.append(InlineKeyboardButton(f"{index + 1}/{len(products)}", callback_data="nav_none"))
         
-        # Кнопка "Вперед" только если не последний товар
         if index < len(products) - 1:
             nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_next"))
         else:
             nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_none"))
         
-        nav = nav_buttons
+        rows.append(nav_buttons)
     
-    rows = []
-    if nav:
-        rows.append(nav)
     if int(p["stock"]) > 0:
         rows.append([InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"addcart|{p['id']}")])
+    
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
     
     photo_path = os.path.join(PHOTOS_DIR, p["photo"]) if p.get("photo") else None
+    
     try:
+        if update.callback_query:
+            try:
+                await update.callback_query.message.delete()
+            except:
+                pass
+        
         if photo_path and os.path.exists(photo_path):
             with open(photo_path, "rb") as ph:
                 if update.callback_query:
@@ -986,10 +991,6 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         photo=ph, caption=text, parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(rows),
                     )
-                    try:
-                        await update.callback_query.message.delete()
-                    except:
-                        pass
                 else:
                     await update.message.reply_photo(
                         photo=ph, caption=text, parse_mode=ParseMode.HTML,
@@ -997,7 +998,7 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
         else:
             if update.callback_query:
-                await update.callback_query.edit_message_text(
+                await update.callback_query.message.reply_text(
                     text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(rows),
                 )
             else:
@@ -1019,13 +1020,20 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "nav_prev":
         context.user_data["current_index"] = max(0, context.user_data.get("current_index", 0) - 1)
         return await show_product_card(update, context)
+    
     if action == "nav_next":
         products = context.user_data.get("cat_products", [])
         context.user_data["current_index"] = min(len(products) - 1, context.user_data.get("current_index", 0) + 1)
         return await show_product_card(update, context)
+    
     if action == "back_to_cats":
+        try:
+            await query.message.delete()
+        except:
+            pass
         await show_categories(update, context)
         return
+    
     if action.startswith("addcart|"):
         pid = int(action.split("|")[1])
         product = get_product(pid)
@@ -1129,18 +1137,43 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("🛒 Корзина пуста")
         return
+    
     total = 0
     lines = ["🛒 <b>Корзина:</b>\n"]
+    warnings = []
+    
     for item in cart:
         item_total = item["price"] * item["quantity"]
         total += item_total
         lines.append(f"{sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
+        
+        product = get_product(item["id"])
+        if product:
+            stock = int(product.get("stock", 0))
+            if item["quantity"] > stock:
+                if stock > 0:
+                    warnings.append(f"⚠️ {sanitize(item['name'])}: доступно только {stock} шт.")
+                    item["quantity"] = stock
+                else:
+                    warnings.append(f"❌ {sanitize(item['name'])}: товар закончился")
+    
+    if warnings:
+        total = sum(i["price"] * i["quantity"] for i in cart)
+        context.user_data["cart"] = [i for i in cart if i["quantity"] > 0]
+        cart = context.user_data["cart"]
+    
     lines.append(f"\n💰 Итого: {total:,.0f}₽")
-    kb = [
-        [InlineKeyboardButton("✅ Оформить", callback_data="checkout")],
-        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_cart")],
-        [InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart")],
-    ]
+    
+    if warnings:
+        lines.append("\n⚠️ <b>Внимание:</b>")
+        lines.extend(warnings)
+    
+    kb = []
+    if cart:
+        kb.append([InlineKeyboardButton("✅ Оформить", callback_data="checkout")])
+    kb.append([InlineKeyboardButton("✏️ Редактировать", callback_data="edit_cart")])
+    kb.append([InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart")])
+    
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
             "\n".join(lines), parse_mode=ParseMode.HTML,
@@ -1418,7 +1451,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Формируем сообщение для группы
     msg_lines = [
         f"🛒 <b>Новый заказ #{order['id']}</b>",
         "",
@@ -1440,7 +1472,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg = "\n".join(msg_lines)
     
-    # Отправляем в группу с детальным логированием
     try:
         log.info(f"Attempting to send order #{order['id']} to group {GROUP_CHAT_ID}")
         
@@ -1456,7 +1487,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Failed to send order #{order['id']} to group {GROUP_CHAT_ID}: {e}")
         log.error(f"Group chat ID type: {type(GROUP_CHAT_ID)}, value: {GROUP_CHAT_ID}")
         
-        # Пробуем отправить без форматирования
         try:
             plain_msg = msg.replace("<b>", "").replace("</b>", "")
             await context.bot.send_message(
@@ -1496,12 +1526,10 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 Заказов пока нет")
         return
     
-    # Показываем последние 10 заказов
     recent_orders = orders[-10:]
     
     kb = []
     for o in reversed(recent_orders):
-        # Форматируем дату
         try:
             order_date = datetime.fromisoformat(o['created_at'])
             date_str = order_date.strftime("%d.%m.%Y %H:%M")
@@ -1549,14 +1577,12 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Заказ не найден")
         return
     
-    # Форматируем дату
     try:
         order_date = datetime.fromisoformat(order['created_at'])
         date_str = order_date.strftime("%d.%m.%Y в %H:%M")
     except:
         date_str = order.get('created_at', '—')
     
-    # Формируем сообщение
     lines = [
         f"🛒 <b>Заказ #{order['id']}</b>",
         "",
@@ -1655,7 +1681,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_storage()
     
-    # Очистка вебхуков и pending updates
     import asyncio
     
     app = Application.builder().token(BOT_TOKEN).build()
