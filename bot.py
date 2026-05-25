@@ -1657,26 +1657,24 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Обработка режима ожидания фото
+    if context.user_data.get("awaiting_photo"):
+        if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
+            return await handle_photo_edit(update, context)
+        # Если пришло что-то другое в режиме ожидания фото — игнорируем
+        return
+
+    # Обработка режима переименования
     if context.user_data.get("awaiting_rename"):
         return await handle_rename_input(update, context)
 
+    # Обработка режима редактирования поля
     if context.user_data.get("edit_field"):
         return await handle_edit_field(update, context)
 
-    if context.user_data.get("awaiting_photo"):
-        if update.message:
-            is_image_doc = (
-                update.message.document
-                and getattr(update.message.document, "mime_type", "").startswith("image/")
-            )
-
-            if update.message.photo or is_image_doc or (
-                update.message.text and update.message.text == "Отмена"
-            ):
-                return await handle_photo_edit(update, context)
-
+    # Обычные кнопки меню
     text = update.message.text if update.message else None
-
+    
     if text == "📦 Каталог":
         return await show_categories(update, context)
     if text == "🛒 Корзина":
@@ -1688,7 +1686,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📋 Заказы":
         return await show_orders(update, context)
 
-    if update.message:
+    if update.message and text:
         await update.message.reply_text(
             "Используйте кнопки меню",
             reply_markup=get_reply_markup(update.effective_user.id),
