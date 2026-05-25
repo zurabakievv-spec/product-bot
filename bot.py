@@ -95,10 +95,12 @@ ADMIN_BUTTONS = [
     ["➕ Добавить товар", "📦 Управление товарами"],
     ["➕ Добавить категорию", "📂 Управление категориями"],
     ["👤 Добавить менеджера", "📋 Заказы"],
+    ["ℹ️ Инфо", "🛑 Стоп"],
 ]
 
 CLIENT_BUTTONS = [
-    ["📦 Каталог", "🛒 Корзина"]
+    ["📦 Каталог", "🛒 Корзина"],
+    ["ℹ️ Инфо", "🛑 Стоп"],
 ]
 
 # =========================================================
@@ -248,10 +250,11 @@ def get_cancel_keyboard():
 
 
 # =========================================================
-# START
+# COMMANDS
 # =========================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start - запуск бота"""
     context.user_data.setdefault("cart", [])
     user_id = update.effective_user.id
     
@@ -264,12 +267,80 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(user_id):
         text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
     else:
-        text = f"👋 Добро пожаловать!\n\n{contact_info}"
+        text = f"👋 Добро пожаловать в магазин!\n\n{contact_info}"
     
     await update.message.reply_text(
         text,
         reply_markup=get_reply_markup(user_id),
         parse_mode=ParseMode.HTML,
+    )
+
+
+async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /info - информация о магазине"""
+    info_text = (
+        "🤖 <b>О боте-магазине</b>\n\n"
+        "Этот бот поможет вам быстро и удобно покупать товары!\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>🛍️ Что умеет бот:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📦 <b>Каталог товаров</b>\n"
+        "• Товары разбиты по категориям\n"
+        "• У каждого товара есть фото, описание и цена\n"
+        "• Показывается наличие на складе\n\n"
+        "🛒 <b>Корзина</b>\n"
+        "• Добавляйте товары в корзину\n"
+        "• Меняйте количество прямо в корзине\n"
+        "• Удаляйте ненужные позиции\n"
+        "• Автоматический подсчёт итоговой суммы\n\n"
+        "✅ <b>Оформление заказа</b>\n"
+        "• Укажите своё имя\n"
+        "• Отправьте номер телефона (кнопкой или вручную)\n"
+        "• Добавьте комментарий к заказу (опционально)\n\n"
+        "📱 <b>Удобство</b>\n"
+        "• Все данные сохраняются в боте\n"
+        "• Кнопки меню всегда под рукой\n"
+        "• Можно вернуться к оформлению в любой момент\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>📝 Как сделать заказ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ Нажмите «📦 Каталог»\n"
+        "2️⃣ Выберите категорию\n"
+        "3️⃣ Листайте товары стрелками ← и →\n"
+        "4️⃣ Нажмите «🛒 Добавить в корзину»\n"
+        "5️⃣ Укажите количество товара\n"
+        "6️⃣ Перейдите в «🛒 Корзина»\n"
+        "7️⃣ Проверьте заказ и нажмите «✅ Оформить»\n"
+        "8️⃣ Введите имя и номер телефона\n"
+        "9️⃣ Получите подтверждение заказа\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>📍 Наши контакты:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🏢 Самовывоз: Пупкина залупкина д1\n"
+        "📞 Телефон: 7 (495) 645 3872\n"
+        "🌐 Сайт: https://oduvan-farm.com\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "💚 Спасибо, что выбираете нас!"
+    )
+    
+    await update.message.reply_text(
+        info_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+
+
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /stop - очистка данных пользователя"""
+    user_id = update.effective_user.id
+    
+    # Очищаем все данные пользователя
+    context.user_data.clear()
+    
+    await update.message.reply_text(
+        "🛑 Бот остановлен. Все ваши данные (корзина, временные данные) очищены.\n\n"
+        "Чтобы начать заново, нажмите /start",
+        reply_markup=get_reply_markup(user_id),
     )
 
 
@@ -1780,6 +1851,10 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await add_product_prompt(update, context)
     if text == "👤 Добавить менеджера":
         return await add_admin_prompt(update, context)
+    if text == "ℹ️ Инфо":
+        return await info_command(update, context)
+    if text == "🛑 Стоп":
+        return await stop_command(update, context)
 
     # Если пришло фото вне режима ожидания
     if update.message and update.message.photo:
@@ -1814,7 +1889,10 @@ def main():
     
     asyncio.get_event_loop().run_until_complete(cleanup())
     
-    app.add_handler(CommandHandler("start", start))
+    # Команды бота
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("info", info_command))
+    app.add_handler(CommandHandler("stop", stop_command))
     
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_prompt)],
