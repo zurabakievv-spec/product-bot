@@ -898,6 +898,7 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Очищаем состояние
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
+        context.user_data.pop("edit_product", None)  # <-- ВАЖНО: очищаем edit_product
         
         # Показываем результат
         product_text = format_product(product)
@@ -908,16 +909,28 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         photo_path = os.path.join(PHOTOS_DIR, product["photo"])
-        with open(photo_path, "rb") as ph:
-            await update.message.reply_photo(
-                photo=ph,
-                caption=f"✅ Фото обновлено\n\n{product_text}{admin_info}",
+        if os.path.exists(photo_path):
+            with open(photo_path, "rb") as ph:
+                await update.message.reply_photo(
+                    photo=ph,
+                    caption=f"✅ Фото обновлено\n\n{product_text}{admin_info}",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=get_reply_markup(update.effective_user.id),
+                )
+        else:
+            await update.message.reply_text(
+                f"✅ Фото обновлено\n\n{product_text}{admin_info}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_reply_markup(update.effective_user.id),
             )
-        return True
+        return True  # <-- ВАЖНО: возвращаем True
     
-    return False
+    # Если пришло не фото и не отмена
+    await update.message.reply_text(
+        "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
+        reply_markup=get_cancel_keyboard(),
+    )
+    return True  # Возвращаем True чтобы не уходить в menu_router
 
 
 async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1668,16 +1681,28 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Самая первая проверка — режим ожидания фото
     if context.user_data.get("awaiting_photo"):
         if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
-            return await handle_photo_edit(update, context)
-        return
+            result = await handle_photo_edit(update, context)
+            if result:  # Если обработано, выходим
+                return
+        # Если пришло не фото и не отмена, но мы в режиме ожидания фото
+        elif update.message and update.message.text:
+            await update.message.reply_text(
+                "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
+                reply_markup=get_cancel_keyboard(),
+            )
+        return  # Выходим из обработчика в любом случае, когда awaiting_photo = True
 
     # 2. Режим переименования
     if context.user_data.get("awaiting_rename"):
-        return await handle_rename_input(update, context)
+        result = await handle_rename_input(update, context)
+        if result:
+            return
 
     # 3. Режим редактирования поля товара
     if context.user_data.get("edit_field"):
-        return await handle_edit_field(update, context)
+        result = await handle_edit_field(update, context)
+        if result:
+            return
 
     # 4. Обычные кнопки меню
     text = update.message.text if update.message else None
@@ -1692,13 +1717,27 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await manage_categories(update, context)
     if text == "📋 Заказы":
         return await show_orders(update, context)
+    if text == "➕ Добавить категорию":
+        return await new_category_prompt(update, context)
+    if text == "➕ Добавить товар":
+        return await add_product_prompt(update, context)
+    if text == "👤 Добавить менеджера":
+        return await add_admin_prompt(update, context)
 
+    # Если пришло фото вне режима ожидания
+    if update.message and update.message.photo:
+        await update.message.reply_text(
+            "❓ Чтобы добавить фото товара, используйте меню редактирования товара",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return
+
+    # Если текст не распознан
     if update.message and text:
         await update.message.reply_text(
             "Используйте кнопки меню",
             reply_markup=get_reply_markup(update.effective_user.id),
         )
-
 
 # =========================================================
 # MAIN
