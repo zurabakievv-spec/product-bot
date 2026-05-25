@@ -5,7 +5,7 @@ import os
 import json
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from html import escape
 from typing import Optional
 
@@ -39,6 +39,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN not found")
+
+# =========================================================
+# TIMEZONE
+# =========================================================
+
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 # =========================================================
 # LOGGING
@@ -736,8 +742,8 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
         await query.message.reply_text("📂 Выберите новую категорию:", reply_markup=InlineKeyboardMarkup(kb))
     elif field == "photo":
         await query.message.reply_text(
-            "📸 Отправьте новое фото или «Пропустить» для удаления:",
-            reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+            "📸 Отправьте новое фото для товара или нажмите «Отмена»:",
+            reply_markup=get_cancel_keyboard(),
         )
         context.user_data["awaiting_photo"] = True
 
@@ -861,12 +867,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return True
     
     if update.message.photo:
-        photo = update.message.photo[-1]
-        file = await photo.get_file()
-        filename = f"product_{product['id']}.jpg"
-        await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
-        product["photo"] = filename
-    elif update.message.text == "Пропустить":
         if product.get("photo"):
             old_path = os.path.join(PHOTOS_DIR, product["photo"])
             if os.path.exists(old_path):
@@ -874,28 +874,32 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     os.remove(old_path)
                 except:
                     pass
-        product["photo"] = ""
-    
-    products = load_products()
-    for i, p in enumerate(products):
-        if p["id"] == product["id"]:
-            products[i] = product
-            break
-    save_products(products)
-    
-    context.user_data.pop("awaiting_photo", None)
-    context.user_data.pop("edit_field", None)
-    
-    product_text = format_product(product)
-    admin_info = (
-        f"\n\n📋 <b>Информация:</b>\n"
-        f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}"
-    )
-    
-    photo_path = os.path.join(PHOTOS_DIR, product["photo"]) if product.get("photo") else None
-    
-    if photo_path and os.path.exists(photo_path):
+        
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        filename = f"product_{product['id']}.jpg"
+        await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
+        product["photo"] = filename
+        
+        products = load_products()
+        for i, p in enumerate(products):
+            if p["id"] == product["id"]:
+                products[i] = product
+                break
+        save_products(products)
+        
+        context.user_data.pop("awaiting_photo", None)
+        context.user_data.pop("edit_field", None)
+        
+        product_text = format_product(product)
+        admin_info = (
+            f"\n\n📋 <b>Информация:</b>\n"
+            f"ID: {product['id']}\n"
+            f"Категория: {sanitize(product.get('category', '—'))}"
+        )
+        
+        photo_path = os.path.join(PHOTOS_DIR, product["photo"])
+        
         with open(photo_path, "rb") as ph:
             await update.message.reply_photo(
                 photo=ph,
@@ -903,12 +907,8 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_reply_markup(update.effective_user.id),
             )
-    else:
-        await update.message.reply_text(
-            f"✅ Фото обновлено\n\n{product_text}{admin_info}",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
+        return True
+    
     return True
 
 
@@ -1464,7 +1464,7 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "comment": text,
         "items": [dict(i) for i in cart],
         "total": total,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": datetime.now(MOSCOW_TZ).isoformat(timespec="seconds"),
     }
     orders.append(order)
     save_orders(orders)
@@ -1662,7 +1662,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("edit_field"):
         return await handle_edit_field(update, context)
     if context.user_data.get("awaiting_photo"):
-        if update.message.photo or (update.message.text and update.message.text in ["Пропустить", "Отмена"]):
+        if update.message.photo or (update.message.text and update.message.text == "Отмена"):
             return await handle_photo_edit(update, context)
     text = update.message.text
     if text == "📦 Каталог":
