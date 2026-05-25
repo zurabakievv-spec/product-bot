@@ -258,13 +258,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_admin(user_id):
         text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
+        # ДИАГНОСТИКА - показываем инфо о группе
+        group_id = os.getenv("GROUP_CHAT_ID")
+        if group_id:
+            try:
+                chat = await context.bot.get_chat(int(group_id))
+                text += f"\n\n✅ Группа для заказов: {chat.title}\nID: {group_id}"
+            except Exception as e:
+                text += f"\n\n❌ Ошибка доступа к группе ID {group_id}\n{e}"
+        else:
+            text += "\n\n❌ GROUP_CHAT_ID не указан в .env"
     else:
         text = f"👋 Добро пожаловать!\n\n{contact_info}"
     
     await update.message.reply_text(
         text,
         reply_markup=get_reply_markup(user_id),
-        parse_mode=ParseMode.HTML,
     )
 
 
