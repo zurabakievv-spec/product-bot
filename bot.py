@@ -570,26 +570,48 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product = context.user_data.get("new_product")
     if not product:
         return ConversationHandler.END
-    if update.message.text == "Отмена":
+    
+    # Проверяем текст только если он есть
+    if update.message.text and update.message.text == "Отмена":
         return await cancel_action(update, context)
-    product["id"] = next_product_id()
-    if update.message.photo:
+    
+    if update.message.text and update.message.text == "Пропустить":
+        # Пропускаем фото
+        pass
+    elif update.message.photo:
+        # Сохраняем фото
         photo = update.message.photo[-1]
         file = await photo.get_file()
+        product["id"] = next_product_id()
         filename = f"product_{product['id']}.jpg"
         await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
         product["photo"] = filename
+        
+        products = load_products()
+        products.append(product)
+        save_products(products)
+        
+        await update.message.reply_text(
+            f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        context.user_data.pop("new_product", None)
+        return ConversationHandler.END
     else:
+        # Нажали "Пропустить"
+        product["id"] = next_product_id()
         product["photo"] = ""
-    products = load_products()
-    products.append(product)
-    save_products(products)
-    await update.message.reply_text(
-        f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
-    context.user_data.pop("new_product", None)
-    return ConversationHandler.END
+        
+        products = load_products()
+        products.append(product)
+        save_products(products)
+        
+        await update.message.reply_text(
+            f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        context.user_data.pop("new_product", None)
+        return ConversationHandler.END
 
 
 # =========================================================
