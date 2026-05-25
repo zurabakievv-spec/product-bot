@@ -641,7 +641,7 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
     if field in ["name", "description", "price", "stock"]:
         prompts = {
             "name": ("📝 Введите новое название:", get_cancel_keyboard()),
-            "description": ("📝 Введите новое описание или «Пропуститьवेयर": ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)),
+            "description": ("📝 Введите новое описание или «Пропустить": ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)),
             "price": ("💰 Введите новую цену:", get_cancel_keyboard()),
             "stock": ("📦 Введите новый остаток:", get_cancel_keyboard()),
         }
