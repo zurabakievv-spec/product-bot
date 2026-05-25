@@ -1446,14 +1446,10 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Отправляем заказ в группу через бота-форвардера
-    try:
-        forwarder_token = os.getenv("FORWARDER_BOT_TOKEN")
-        group_id = os.getenv("GROUP_CHAT_ID")
-        
-        if forwarder_token and group_id:
-            forwarder_bot = Bot(token=forwarder_token)
-            
+    # Отправка в группу
+    group_id = os.getenv("GROUP_CHAT_ID")
+    if group_id:
+        try:
             msg = (
                 f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
                 f"👤 Имя: {sanitize(order['client_name'])}\n"
@@ -1467,14 +1463,14 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"\n— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽"
             msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
             
-            await forwarder_bot.send_message(
+            await context.bot.send_message(
                 chat_id=int(group_id),
                 text=msg,
                 parse_mode=ParseMode.HTML,
             )
-            log.info(f"Order #{order['id']} sent to group {group_id}")
-    except Exception as e:
-        log.error(f"Failed to send order to group: {e}")
+            log.info(f"Order #{order['id']} sent to group")
+        except Exception as e:
+            log.error(f"Failed to send to group: {e}")
     
     context.user_data["cart"] = []
     await update.message.reply_text(
