@@ -257,15 +257,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_admin(user_id):
         text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
-        group_id = os.getenv("GROUP_CHAT_ID")
-        if group_id:
-            try:
-                chat = await context.bot.get_chat(int(group_id))
-                text += f"\n\n✅ Группа для заказов: {chat.title}\nID: {group_id}"
-            except Exception as e:
-                text += f"\n\n❌ Ошибка доступа к группе ID {group_id}\n{e}"
-        else:
-            text += "\n\n❌ GROUP_CHAT_ID не указан в .env"
     else:
         text = f"👋 Добро пожаловать!\n\n{contact_info}"
     
@@ -1456,12 +1447,10 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Отправка в группу
     group_id = os.getenv("GROUP_CHAT_ID")
-    log.info(f"GROUP_CHAT_ID from env: {group_id}")
     
     if group_id:
         try:
             group_id_int = int(group_id)
-            log.info(f"Sending to group: {group_id_int}")
             
             msg = (
                 f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
@@ -1476,39 +1465,17 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"\n— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽"
             msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
             
-            result = await context.bot.send_message(
+            await context.bot.send_message(
                 chat_id=group_id_int,
                 text=msg,
                 parse_mode=ParseMode.HTML,
             )
-            log.info(f"✅ Order #{order['id']} sent to group! Message ID: {result.message_id}")
+            log.info(f"Order #{order['id']} sent to group")
             
         except Exception as e:
-            log.error(f"❌ Failed to send to group: {type(e).__name__}: {e}")
-            
-            # Пробуем без HTML
-            try:
-                plain_msg = msg.replace("<b>", "").replace("</b>", "")
-                await context.bot.send_message(
-                    chat_id=group_id_int,
-                    text=plain_msg,
-                )
-                log.info(f"✅ Order #{order['id']} sent to group (plain text)")
-            except Exception as e2:
-                log.error(f"❌ Plain text also failed: {e2}")
-                
-                # Пробуем отправить админам
-                try:
-                    admins = load_admins()
-                    for admin_id in admins:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=f"❌ Не удалось отправить заказ #{order['id']} в группу!\nОшибка: {e2}",
-                        )
-                except:
-                    pass
+            log.error(f"Failed to send order to group: {e}")
     else:
-        log.error("❌ GROUP_CHAT_ID is not set in environment!")
+        log.error("GROUP_CHAT_ID is not set!")
     
     context.user_data["cart"] = []
     await update.message.reply_text(
