@@ -1662,7 +1662,8 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("edit_field"):
         return await handle_edit_field(update, context)
     if context.user_data.get("awaiting_photo"):
-        if update.message.photo or (update.message.text and update.message.text == "Отмена"):
+        # Принимаем и фото, и текст "Отмена"
+        if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
             return await handle_photo_edit(update, context)
     text = update.message.text
     if text == "📦 Каталог":
