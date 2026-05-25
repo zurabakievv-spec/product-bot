@@ -16,7 +16,6 @@ from telegram import (
     KeyboardButton,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    Bot,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -258,7 +257,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_admin(user_id):
         text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
-        # ДИАГНОСТИКА - показываем инфо о группе
         group_id = os.getenv("GROUP_CHAT_ID")
         if group_id:
             try:
@@ -274,6 +272,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         text,
         reply_markup=get_reply_markup(user_id),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -1455,7 +1454,7 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Отправка в группу с логированием
+    # Отправка в группу
     group_id = os.getenv("GROUP_CHAT_ID")
     log.info(f"GROUP_CHAT_ID from env: {group_id}")
     
@@ -1497,6 +1496,17 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 log.info(f"✅ Order #{order['id']} sent to group (plain text)")
             except Exception as e2:
                 log.error(f"❌ Plain text also failed: {e2}")
+                
+                # Пробуем отправить админам
+                try:
+                    admins = load_admins()
+                    for admin_id in admins:
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=f"❌ Не удалось отправить заказ #{order['id']} в группу!\nОшибка: {e2}",
+                        )
+                except:
+                    pass
     else:
         log.error("❌ GROUP_CHAT_ID is not set in environment!")
     
