@@ -898,7 +898,7 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Очищаем состояние
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
-        context.user_data.pop("edit_product", None)  # <-- ВАЖНО: очищаем edit_product
+        context.user_data.pop("edit_product", None)
         
         # Показываем результат
         product_text = format_product(product)
@@ -923,14 +923,14 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_reply_markup(update.effective_user.id),
             )
-        return True  # <-- ВАЖНО: возвращаем True
+        return True
     
     # Если пришло не фото и не отмена
     await update.message.reply_text(
         "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
         reply_markup=get_cancel_keyboard(),
     )
-    return True  # Возвращаем True чтобы не уходить в menu_router
+    return True
 
 
 async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1554,10 +1554,31 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 Заказов пока нет")
         return
     
-    recent_orders = orders[-10:]
+    # Сортируем заказы по убыванию ID (новые сверху)
+    orders_sorted = sorted(orders, key=lambda x: x['id'], reverse=True)
     
+    # Инициализируем номер страницы (0 - первая страница с самыми новыми)
+    if hasattr(update, "callback_query") and update.callback_query:
+        # Если это callback, берем страницу из data или из контекста
+        if "|" in update.callback_query.data and update.callback_query.data.startswith("orders_page|"):
+            page = int(update.callback_query.data.split("|")[1])
+        else:
+            page = context.user_data.get("orders_page", 0)
+    else:
+        page = context.user_data.get("orders_page", 0)
+    
+    total_pages = (len(orders_sorted) + 9) // 10  # округление вверх
+    start_idx = page * 10
+    end_idx = min(start_idx + 10, len(orders_sorted))
+    current_orders = orders_sorted[start_idx:end_idx]
+    
+    # Сохраняем текущую страницу
+    context.user_data["orders_page"] = page
+    context.user_data["orders_total_pages"] = total_pages
+    
+    # Создаем кнопки для заказов на текущей странице
     kb = []
-    for o in reversed(recent_orders):
+    for o in current_orders:
         try:
             order_date = datetime.fromisoformat(o['created_at'])
             date_str = order_date.strftime("%d.%m.%Y %H:%M")
@@ -1571,18 +1592,55 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         ])
     
+    # Добавляем кнопки пагинации (только активные)
+    nav_buttons = []
+    
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Предыдущие", callback_data=f"orders_page|{page - 1}"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Следующие ▶️", callback_data=f"orders_page|{page + 1}"))
+    
+    if nav_buttons:
+        kb.append(nav_buttons)
+    
+    # Информация о странице
+    page_info = f"\n📄 Страница {page + 1} из {total_pages} | Всего заказов: {len(orders_sorted)}"
+    
+    # Текст сообщения
+    message_text = f"📋 <b>История заказов:</b>{page_info}\n\n"
+    if not current_orders:
+        message_text += "❌ Заказов не найдено"
+    
+    # Отправляем сообщение
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
-            "📋 <b>Последние заказы:</b>",
+            message_text,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb),
+            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
         )
     else:
         await update.message.reply_text(
-            "📋 <b>Последние заказы:</b>",
+            message_text,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb),
+            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
         )
+
+
+async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопок пагинации заказов"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    # Получаем номер страницы из callback_data
+    page = int(query.data.split("|")[1])
+    context.user_data["orders_page"] = page
+    
+    # Переиспользуем функцию show_orders для отображения
+    await show_orders(update, context)
 
 
 async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1682,15 +1740,14 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_photo"):
         if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
             result = await handle_photo_edit(update, context)
-            if result:  # Если обработано, выходим
+            if result:
                 return
-        # Если пришло не фото и не отмена, но мы в режиме ожидания фото
         elif update.message and update.message.text:
             await update.message.reply_text(
                 "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
                 reply_markup=get_cancel_keyboard(),
             )
-        return  # Выходим из обработчика в любом случае, когда awaiting_photo = True
+        return
 
     # 2. Режим переименования
     if context.user_data.get("awaiting_rename"):
@@ -1738,6 +1795,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Используйте кнопки меню",
             reply_markup=get_reply_markup(update.effective_user.id),
         )
+
 
 # =========================================================
 # MAIN
@@ -1832,6 +1890,7 @@ def main():
     app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern="^orderdetail\\|"))
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
+    app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
     app.add_handler(MessageHandler(filters.PHOTO, menu_router))
