@@ -95,7 +95,6 @@ ADMIN_BUTTONS = [
     ["➕ Добавить товар", "📦 Управление товарами"],
     ["➕ Добавить категорию", "📂 Управление категориями"],
     ["👤 Добавить менеджера", "📋 Заказы"],
-    ["ℹ️ Инфо", "🛑 Стоп"],
 ]
 
 CLIENT_BUTTONS = [
@@ -258,15 +257,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("cart", [])
     user_id = update.effective_user.id
     
-    contact_info = (
-        "📍 Пункт самовывоза: Пупкина залупкина д1\n"
-        "🌐 Сайт: https://oduvan-farm.com\n"
-        "📞 Телефон: 7 (495) 645 3872"
-    )
-    
     if is_admin(user_id):
-        text = f"👋 Добро пожаловать, менеджер!\n\n{contact_info}"
+        text = "👋 Добро пожаловать, менеджер!"
     else:
+        contact_info = (
+            "📍 Пункт самовывоза: Пупкина залупкина д1\n"
+            "🌐 Сайт: https://oduvan-farm.com\n"
+            "📞 Телефон: +7(495)6453872"
+        )
         text = f"👋 Добро пожаловать в магазин!\n\n{contact_info}"
     
     await update.message.reply_text(
@@ -317,7 +315,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>📍 Наши контакты:</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "🏢 Самовывоз: Пупкина залупкина д1\n"
-        "📞 Телефон: 7 (495) 645 3872\n"
+        "📞 Телефон: +7(495)6453872\n"
         "🌐 Сайт: https://oduvan-farm.com\n\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "💚 Спасибо, что выбираете нас!"
