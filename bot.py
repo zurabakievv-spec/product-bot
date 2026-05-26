@@ -273,7 +273,6 @@ def is_hidden_category(category_name: str) -> bool:
 
 
 def clear_waiting_states(context: ContextTypes.DEFAULT_TYPE):
-    """Очищает все состояния ожидания"""
     keys_to_clear = [
         "awaiting_rename", "awaiting_photo", "edit_field",
         "rename_old_cat", "edit_product", "new_product",
@@ -1927,17 +1926,11 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif is_waiting:
         # Если в режиме ожидания и ввод не является кнопкой меню
         if context.user_data.get("awaiting_rename"):
-            result = await handle_rename_input(update, context)
-            if result:
-                return
+            await handle_rename_input(update, context)
         elif context.user_data.get("awaiting_photo"):
-            result = await handle_photo_edit(update, context)
-            if result:
-                return
+            await handle_photo_edit(update, context)
         elif context.user_data.get("edit_field"):
-            result = await handle_edit_field(update, context)
-            if result:
-                return
+            await handle_edit_field(update, context)
         return
     
     # Обработка команд /start, /info, /stop
@@ -2011,15 +2004,7 @@ def main():
     asyncio.get_event_loop().run_until_complete(cleanup())
     
     # =========================================================
-    # 1. ПРИОРИТЕТНЫЕ ОБРАБОТЧИКИ
-    # =========================================================
-    
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_input))
-    app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_photo_edit))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_field))
-    
-    # =========================================================
-    # 2. КОМАНДЫ БОТА
+    # КОМАНДЫ БОТА
     # =========================================================
     
     app.add_handler(CommandHandler("start", start_command))
@@ -2027,7 +2012,7 @@ def main():
     app.add_handler(CommandHandler("stop", stop_command))
     
     # =========================================================
-    # 3. ДИАЛОГИ
+    # ДИАЛОГИ
     # =========================================================
     
     app.add_handler(ConversationHandler(
@@ -2088,7 +2073,7 @@ def main():
     ))
     
     # =========================================================
-    # 4. CALLBACK QUERY HANDLERS
+    # CALLBACK QUERY HANDLERS
     # =========================================================
     
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
@@ -2111,7 +2096,7 @@ def main():
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     
     # =========================================================
-    # 5. ОСНОВНОЙ РОУТЕР (САМЫЙ НИЗКИЙ ПРИОРИТЕТ)
+    # ОСНОВНОЙ РОУТЕР
     # =========================================================
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
