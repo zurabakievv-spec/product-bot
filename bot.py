@@ -267,6 +267,16 @@ def get_product_photo_bytes(product: dict) -> Optional[bytes]:
     return None
 
 
+def get_tech_category_name():
+    """Возвращает техническое название категории для товаров без категории"""
+    return "📦 Без категории"
+
+
+def is_hidden_category(category_name: str) -> bool:
+    """Проверяет, является ли категория скрытой (технической)"""
+    return category_name == get_tech_category_name()
+
+
 # =========================================================
 # COMMANDS
 # =========================================================
@@ -426,7 +436,15 @@ async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
-    kb = [[InlineKeyboardButton(cat, callback_data=f"managecat|{cat}")] for cat in categories]
+    
+    # Для админов показываем все категории, но с пометкой для технической
+    kb = []
+    for cat in categories:
+        if is_hidden_category(cat):
+            kb.append([InlineKeyboardButton(f"🔧 {cat} (техническая)", callback_data=f"managecat|{cat}")])
+        else:
+            kb.append([InlineKeyboardButton(cat, callback_data=f"managecat|{cat}")])
+    
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
             "📂 Выберите категорию для управления:",
@@ -445,6 +463,17 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update.effective_user.id):
         return
     cat = query.data.split("|", 1)[1]
+    
+    # Запрещаем удаление технической категории
+    if is_hidden_category(cat):
+        kb = [[InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")]]
+        await query.edit_message_text(
+            f"🔧 Категория '{cat}' является технической и не может быть удалена.\n\n"
+            f"Она нужна для товаров, у которых нет категории.",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
     kb = [
         [InlineKeyboardButton("✏️ Переименовать", callback_data=f"renamecat|{cat}")],
         [InlineKeyboardButton("🗑 Удалить", callback_data=f"deletecat|{cat}")],
@@ -463,10 +492,23 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update.effective_user.id):
         return
     cat = query.data.split("|", 1)[1]
+    
+    # Запрещаем переименование технической категории
+    if is_hidden_category(cat):
+        kb = [[InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")]]
+        await query.edit_message_text(
+            f"🔧 Техническая категория '{cat}' не может быть переименована.",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
+    
+    # Отправляем сообщение с клавиатурой, содержащей кнопку "Отмена"
     await query.edit_message_text(
-        f"✏️ Введите новое название для категории '{cat}'\nИли нажмите «Отмена»:"
+        f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
+        reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
     )
 
 
@@ -527,7 +569,7 @@ async def delete_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     products_in_cat = len([p for p in load_products() if p.get("category") == cat])
     warning = ""
     if products_in_cat > 0:
-        warning = f"\n⚠️ В категории {products_in_cat} товаров. Они останутся без категории."
+        warning = f"\n⚠️ В категории {products_in_cat} товаров. Они будут перемещены в «Без категории»."
     kb = [
         [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirmdel|{cat}")],
         [InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")],
@@ -548,12 +590,24 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     if cat in cats:
         cats.remove(cat)
         save_categories(cats)
+    
+    # Перемещаем товары в техническую категорию "Без категории"
     products = load_products()
+    tech_category = get_tech_category_name()
+    
+    # Убеждаемся, что техническая категория существует в списке (для админов)
+    if tech_category not in cats:
+        all_cats_for_admin = cats + [tech_category]
+        save_categories(all_cats_for_admin)
+    
     for p in products:
         if p.get("category") == cat:
-            p["category"] = ""
+            p["category"] = tech_category
     save_products(products)
-    await query.edit_message_text(f"✅ Категория '{cat}' удалена")
+    
+    await query.edit_message_text(
+        f"✅ Категория '{cat}' удалена. Товары перемещены в '{tech_category}'"
+    )
 
 
 # =========================================================
@@ -640,7 +694,17 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         return ConversationHandler.END
-    keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in categories]
+    
+    # Фильтруем техническую категорию для выбора при добавлении товара
+    available_categories = [cat for cat in categories if not is_hidden_category(cat)]
+    if not available_categories:
+        await update.message.reply_text(
+            "❌ Нет доступных категорий. Сначала создайте категорию.",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    
+    keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in available_categories]
     await update.message.reply_text(
         "📂 Выберите категорию:",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -705,7 +769,13 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("📂 Сначала создайте категории")
         return
     
-    kb = [[InlineKeyboardButton(cat, callback_data=f"admincat|{cat}")] for cat in categories]
+    # Для админов показываем все категории
+    kb = []
+    for cat in categories:
+        if is_hidden_category(cat):
+            kb.append([InlineKeyboardButton(f"🔧 {cat}", callback_data=f"admincat|{cat}")])
+        else:
+            kb.append([InlineKeyboardButton(cat, callback_data=f"admincat|{cat}")])
     
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
@@ -829,7 +899,9 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
         await query.message.reply_text(text, reply_markup=kb)
     elif field == "category":
         categories = load_categories()
-        kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in categories]
+        # Фильтруем техническую категорию для выбора при редактировании
+        available_categories = [cat for cat in categories if not is_hidden_category(cat)]
+        kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in available_categories]
         kb.append([InlineKeyboardButton("🔙 Назад", callback_data=f"editprod|{context.user_data['edit_product']['id']}")])
         await query.message.reply_text("📂 Выберите новую категорию:", reply_markup=InlineKeyboardMarkup(kb))
     elif field == "photo":
@@ -1049,6 +1121,15 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
+    
+    # Для покупателей скрываем техническую категорию
+    if not is_admin(update.effective_user.id):
+        categories = [cat for cat in categories if not is_hidden_category(cat)]
+    
+    if not categories:
+        await update.message.reply_text("📂 Категорий пока нет")
+        return
+    
     kb = [[InlineKeyboardButton(cat, callback_data=f"showcat|{cat}")] for cat in categories]
     await update.message.reply_text(
         "📂 Выберите категорию:",
