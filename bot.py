@@ -249,7 +249,6 @@ def get_cancel_keyboard():
 
 
 def get_product_photo_bytes(product: dict) -> Optional[bytes]:
-    """Получение фото товара в виде байтов"""
     if product.get("photo_base64"):
         try:
             return base64.b64decode(product["photo_base64"])
@@ -266,12 +265,10 @@ def get_product_photo_bytes(product: dict) -> Optional[bytes]:
 
 
 def get_tech_category_name():
-    """Возвращает техническое название категории для товаров без категории"""
     return "📦 Без категории"
 
 
 def is_hidden_category(category_name: str) -> bool:
-    """Проверяет, является ли категория скрытой (технической)"""
     return category_name == get_tech_category_name()
 
 
@@ -280,7 +277,6 @@ def is_hidden_category(category_name: str) -> bool:
 # =========================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start - запуск бота"""
     context.user_data.setdefault("cart", [])
     user_id = update.effective_user.id
     
@@ -302,7 +298,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /info - информация о магазине"""
     info_text = (
         "🤖 <b>О боте-магазине</b>\n\n"
         "Этот бот поможет вам быстро и удобно покупать товары!\n\n"
@@ -356,9 +351,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /stop - очистка данных пользователя"""
     user_id = update.effective_user.id
-    
     context.user_data.clear()
     
     await update.message.reply_text(
@@ -484,8 +477,10 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
 async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     if not is_admin(update.effective_user.id):
         return
+    
     cat = query.data.split("|", 1)[1]
     
     if is_hidden_category(cat):
@@ -499,7 +494,7 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
     
-    await query.edit_message_text(
+    await query.message.reply_text(
         f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
         reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
     )
@@ -508,6 +503,7 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
 async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_rename"):
         return False
+    
     if not is_admin(update.effective_user.id):
         context.user_data.pop("awaiting_rename", None)
         context.user_data.pop("rename_old_cat", None)
@@ -1880,7 +1876,6 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Если мы в режиме ожидания - не обрабатываем здесь
     if context.user_data.get("awaiting_rename") or context.user_data.get("awaiting_photo") or context.user_data.get("edit_field"):
         return
     
@@ -1947,38 +1942,23 @@ def main():
     app.add_handler(CommandHandler("stop", stop_command))
     
     # =========================================================
-    # ПРИОРИТЕТНЫЕ ОБРАБОТЧИКИ (group=0 - САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ)
+    # ПРИОРИТЕТНЫЕ ОБРАБОТЧИКИ (ДОЛЖНЫ БЫТЬ ПЕРВЫМИ)
     # =========================================================
-    
-    async def rename_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if context.user_data.get("awaiting_rename"):
-            return await handle_rename_input(update, context)
-        return False
     
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND, 
-        rename_input_wrapper
-    ), group=0)
-    
-    async def photo_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if context.user_data.get("awaiting_photo"):
-            return await handle_photo_edit(update, context)
-        return False
+        handle_rename_input
+    ))
     
     app.add_handler(MessageHandler(
         filters.PHOTO | (filters.TEXT & ~filters.COMMAND),
-        photo_input_wrapper
-    ), group=0)
-    
-    async def edit_field_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if context.user_data.get("edit_field"):
-            return await handle_edit_field(update, context)
-        return False
+        handle_photo_edit
+    ))
     
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        edit_field_wrapper
-    ), group=0)
+        handle_edit_field
+    ))
     
     # =========================================================
     # ДИАЛОГИ (ConversationHandler)
@@ -2065,11 +2045,11 @@ def main():
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     
     # =========================================================
-    # ОСНОВНОЙ РОУТЕР (group=1 - НИЗКИЙ ПРИОРИТЕТ)
+    # ОСНОВНОЙ РОУТЕР (ПОСЛЕДНИЙ)
     # =========================================================
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router), group=1)
-    app.add_handler(MessageHandler(filters.PHOTO, menu_router), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
+    app.add_handler(MessageHandler(filters.PHOTO, menu_router))
     
     log.info("BOT STARTED")
     app.run_polling(drop_pending_updates=True)
