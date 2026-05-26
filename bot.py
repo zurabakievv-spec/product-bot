@@ -283,11 +283,19 @@ def clear_waiting_states(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(key, None)
 
 
+def is_private_chat(update: Update) -> bool:
+    """Проверяет, является ли чат личным (не группой)"""
+    return update.effective_chat and update.effective_chat.type == "private"
+
+
 # =========================================================
 # COMMANDS
 # =========================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     context.user_data.setdefault("cart", [])
     user_id = update.effective_user.id
@@ -310,6 +318,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     info_text = (
         "🤖 <b>О боте-магазине</b>\n\n"
@@ -364,6 +375,9 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     user_id = update.effective_user.id
     context.user_data.clear()
@@ -400,6 +414,9 @@ async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def new_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
@@ -411,6 +428,9 @@ async def new_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -438,6 +458,9 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
@@ -466,6 +489,9 @@ async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
@@ -494,6 +520,9 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -525,6 +554,9 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return False
+    
     if not context.user_data.get("awaiting_rename"):
         return False
     
@@ -594,6 +626,9 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def delete_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
@@ -623,6 +658,9 @@ async def delete_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
@@ -657,6 +695,9 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
 # =========================================================
 
 async def add_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
@@ -669,6 +710,9 @@ async def add_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def add_product_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -687,6 +731,9 @@ async def add_product_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_product_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -711,6 +758,9 @@ async def add_product_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_product_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -731,6 +781,9 @@ async def add_product_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -768,6 +821,9 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     query = update.callback_query
     await query.answer()
     category = query.data.split("|", 1)[1]
@@ -780,6 +836,9 @@ async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     product = context.user_data.get("new_product")
     if not product:
         return ConversationHandler.END
@@ -814,6 +873,9 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
@@ -843,6 +905,9 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def show_admin_category_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -880,6 +945,9 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
 
 
 async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
@@ -936,6 +1004,9 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     field = query.data.split("|")[1]
@@ -964,6 +1035,9 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return False
+    
     field = context.user_data.get("edit_field")
     product = context.user_data.get("edit_product")
     if not field or not product:
@@ -1048,6 +1122,9 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     product = context.user_data.get("edit_product")
@@ -1081,6 +1158,9 @@ async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return False
+    
     if not context.user_data.get("awaiting_photo"):
         return False
     
@@ -1144,6 +1224,9 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
@@ -1171,6 +1254,9 @@ async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TY
 # =========================================================
 
 async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     categories = load_categories()
     if not categories:
@@ -1192,6 +1278,9 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     category = query.data.split("|", 1)[1]
@@ -1210,6 +1299,9 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     index = context.user_data.get("current_index", 0)
     products = context.user_data.get("cat_products", [])
     if not products or index >= len(products):
@@ -1275,6 +1367,9 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     action = query.data
@@ -1320,6 +1415,9 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     cart = context.user_data.get("cart", [])
     if not cart:
@@ -1378,6 +1476,9 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         await update.message.reply_text(
@@ -1453,6 +1554,9 @@ async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def cart_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1510,6 +1614,9 @@ async def cart_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def edit_cart_item_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1539,6 +1646,9 @@ async def edit_cart_item_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def remove_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1554,6 +1664,9 @@ async def remove_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def change_cart_qty_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1580,6 +1693,9 @@ async def change_cart_qty_prompt(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def change_cart_qty_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     
     if text == "Отмена":
@@ -1633,6 +1749,9 @@ async def change_cart_qty_execute(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         await update.message.reply_text(
@@ -1653,6 +1772,9 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     if update.message.text == "Отмена":
         await update.message.reply_text(
             "❌ Оформление отменено",
@@ -1680,6 +1802,9 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         await update.message.reply_text(
@@ -1757,6 +1882,9 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
@@ -1834,6 +1962,9 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1847,6 +1978,9 @@ async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
     query = update.callback_query
     await query.answer()
     
@@ -1906,11 +2040,10 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ADMINS
 # =========================================================
 
-# =========================================================
-# ADMINS
-# =========================================================
-
 async def add_admin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     clear_waiting_states(context)
     
     await update.message.reply_text(
@@ -1923,6 +2056,9 @@ async def add_admin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
@@ -1955,6 +2091,10 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Игнорируем все сообщения из групп и каналов
+    if not is_private_chat(update):
+        return
+    
     text = update.message.text if update.message else None
     
     menu_buttons = [
