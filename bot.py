@@ -205,7 +205,7 @@ def is_admin(user_id: int):
     return user_id in load_admins()
 
 
-def sanitize(text: str, limit=300):
+def sanitize(text: str, limit=1500):
     return escape(str(text))[:limit]
 
 
@@ -236,9 +236,10 @@ def next_product_id():
 def format_product(product):
     stock = int(product["stock"])
     stock_text = f"📦 В наличии: {stock} шт." if stock > 0 else "❌ Нет в наличии"
+    description = product.get('description', '') or '—'
     return (
-        f"🏷 <b>{sanitize(product['name'])}</b>\n\n"
-        f"{sanitize(product.get('description', '') or '—')}\n\n"
+        f"🏷 <b>{sanitize(product['name'], 100)}</b>\n\n"
+        f"{escape(str(description))[:1500]}\n\n"
         f"💰 {product['price']:,.0f}₽\n"
         f"{stock_text}"
     )
@@ -416,6 +417,9 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await update.message.reply_text("❌ Введите название:")
         return NEW_CATEGORY_NAME
+    if len(text) > 50:
+        await update.message.reply_text("❌ Слишком длинное название (макс. 50 символов)")
+        return NEW_CATEGORY_NAME
     cats = load_categories()
     if text in cats:
         await update.message.reply_text("❌ Категория уже существует")
@@ -483,7 +487,7 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")],
     ]
     await query.edit_message_text(
-        f"📂 Управление категорией: {sanitize(cat)}",
+        f"📂 Управление категорией: {sanitize(cat, 50)}",
         reply_markup=InlineKeyboardMarkup(kb),
         parse_mode=ParseMode.HTML,
     )
@@ -509,13 +513,11 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
     
-    # Отправляем НОВОЕ сообщение с клавиатурой
     await query.message.reply_text(
         f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
         reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
     )
     
-    # Удаляем старое сообщение с кнопками
     try:
         await query.message.delete()
     except:
@@ -570,13 +572,11 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return True
     
-    # Переименовываем категорию
     if old_name in cats:
         cats.remove(old_name)
         cats.append(text)
         save_categories(cats)
     
-    # Обновляем категорию у товаров
     products = load_products()
     for p in products:
         if p.get("category") == old_name:
@@ -651,6 +651,7 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         f"✅ Категория '{cat}' удалена. Товары перемещены в '{tech_category}'"
     )
 
+
 # =========================================================
 # ADD PRODUCT
 # =========================================================
@@ -674,6 +675,9 @@ async def add_product_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await update.message.reply_text("❌ Введите название:")
         return ADD_PRODUCT_NAME
+    if len(text) > 100:
+        await update.message.reply_text("❌ Слишком длинное название (макс. 100 символов)")
+        return ADD_PRODUCT_NAME
     context.user_data["new_product"]["name"] = text
     await update.message.reply_text(
         "📝 Введите описание товара или нажмите «Пропустить»:",
@@ -688,6 +692,16 @@ async def add_product_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await cancel_action(update, context)
     if text == "Пропустить":
         text = ""
+    
+    if len(text) > 1500:
+        await update.message.reply_text(
+            f"❌ Описание слишком длинное (макс. 1500 символов).\n"
+            f"Сейчас: {len(text)} символов.\n\n"
+            f"Пожалуйста, сократите описание или нажмите «Отмена»:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
+        return ADD_PRODUCT_DESC
+    
     context.user_data["new_product"]["description"] = text
     await update.message.reply_text(
         "💰 Введите цену товара:",
@@ -883,7 +897,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_info = (
         f"\n\n📋 <b>Информация для менеджера:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}"
+        f"Категория: {sanitize(product.get('category', '—'), 50)}"
     )
     
     full_text = product_text + admin_info
@@ -968,10 +982,23 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not text:
             await update.message.reply_text("❌ Введите название:")
             return True
+        if len(text) > 100:
+            await update.message.reply_text("❌ Название слишком длинное (макс. 100 символов)")
+            return True
         product["name"] = text
     elif field == "description":
         if text == "Пропустить":
             text = ""
+        
+        if len(text) > 1500:
+            await update.message.reply_text(
+                f"❌ Описание слишком длинное (макс. 1500 символов).\n"
+                f"Сейчас: {len(text)} символов.\n\n"
+                f"Пожалуйста, сократите описание или нажмите «Отмена»:",
+                reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+            )
+            return True
+        
         product["description"] = text
     elif field == "price":
         try:
@@ -1009,7 +1036,7 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_info = (
         f"\n\n📋 <b>Информация:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}"
+        f"Категория: {sanitize(product.get('category', '—'), 50)}"
     )
     
     await update.message.reply_text(
@@ -1043,7 +1070,7 @@ async def set_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_info = (
         f"\n\n📋 <b>Информация:</b>\n"
         f"ID: {product['id']}\n"
-        f"Категория: {sanitize(product.get('category', '—'))}"
+        f"Категория: {sanitize(product.get('category', '—'), 50)}"
     )
     
     await query.message.reply_text(
@@ -1097,7 +1124,7 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admin_info = (
             f"\n\n📋 <b>Информация:</b>\n"
             f"ID: {product['id']}\n"
-            f"Категория: {sanitize(product.get('category', '—'))}"
+            f"Категория: {sanitize(product.get('category', '—'), 50)}"
         )
         
         photo_bytes = base64.b64decode(product["photo_base64"])
@@ -1309,17 +1336,17 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in cart:
         item_total = item["price"] * item["quantity"]
         total += item_total
-        lines.append(f"{sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
+        lines.append(f"{sanitize(item['name'], 50)} × {item['quantity']} = {item_total:,.0f}₽")
         
         product = get_product(item["id"])
         if product:
             stock = int(product.get("stock", 0))
             if item["quantity"] > stock:
                 if stock > 0:
-                    warnings.append(f"⚠️ {sanitize(item['name'])}: доступно только {stock} шт.")
+                    warnings.append(f"⚠️ {sanitize(item['name'], 50)}: доступно только {stock} шт.")
                     item["quantity"] = stock
                 else:
-                    warnings.append(f"❌ {sanitize(item['name'])}: товар закончился")
+                    warnings.append(f"❌ {sanitize(item['name'], 50)}: товар закончился")
     
     if warnings:
         total = sum(i["price"] * i["quantity"] for i in cart)
@@ -1349,6 +1376,385 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(kb),
         )
 
+
+async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text == "Отмена":
+        await update.message.reply_text(
+            "❌ Добавление отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    try:
+        qty = int(text)
+    except:
+        await update.message.reply_text(
+            "❌ Введите целое число.\nИли нажмите «Отмена»:",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return ADD_TO_CART_QTY
+    pid = context.user_data["adding_product_id"]
+    product = get_product(pid)
+    if not product:
+        await update.message.reply_text(
+            "❌ Товар не найден",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    if qty <= 0:
+        await update.message.reply_text(
+            "❌ Количество должно быть больше 0.\nВведите другое количество или нажмите «Отмена»:",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return ADD_TO_CART_QTY
+    stock = int(product["stock"])
+    if qty > stock:
+        await update.message.reply_text(
+            f"❌ Недостаточно товара на складе.\n"
+            f"Доступно: {stock} шт.\n"
+            f"Введите другое количество или нажмите «Отмена»:",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return ADD_TO_CART_QTY
+    cart = context.user_data.setdefault("cart", [])
+    existing = None
+    for item in cart:
+        if item["id"] == pid:
+            existing = item
+            break
+    if existing:
+        new_qty = existing["quantity"] + qty
+        if new_qty > stock:
+            await update.message.reply_text(
+                f"❌ Недостаточно товара на складе.\n"
+                f"В корзине уже {existing['quantity']} шт., доступно всего {stock} шт.\n"
+                f"Можно добавить ещё {stock - existing['quantity']} шт.\n"
+                f"Введите другое количество или нажмите «Отмена»:",
+                reply_markup=get_cancel_keyboard(),
+            )
+            return ADD_TO_CART_QTY
+        existing["quantity"] = new_qty
+    else:
+        cart.append({
+            "id": pid,
+            "name": product["name"],
+            "price": product["price"],
+            "quantity": qty,
+        })
+    await update.message.reply_text(
+        f"✅ {sanitize(product['name'], 50)} × {qty} добавлено в корзину",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return ConversationHandler.END
+
+
+# =========================================================
+# CHECKOUT
+# =========================================================
+
+async def cart_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "clear_cart":
+        context.user_data["cart"] = []
+        await query.edit_message_text("🗑 Корзина очищена")
+        return
+    
+    if query.data == "edit_cart":
+        cart = context.user_data.get("cart", [])
+        if not cart:
+            await query.edit_message_text("🛒 Корзина пуста")
+            return
+        kb = []
+        for i, item in enumerate(cart):
+            kb.append([
+                InlineKeyboardButton(
+                    f"✏️ {sanitize(item['name'], 25)} × {item['quantity']}",
+                    callback_data=f"editcartitem|{i}"
+                )
+            ])
+        kb.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_cart")])
+        await query.edit_message_text(
+            "✏️ Выберите товар для редактирования:",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
+    if query.data == "back_to_cart":
+        await view_cart(update, context)
+        return
+    
+    if query.data == "checkout":
+        cart = context.user_data.get("cart", [])
+        if not cart:
+            await query.edit_message_text("🛒 Корзина пуста")
+            return
+        for item in cart:
+            product = get_product(item["id"])
+            if not product:
+                await query.edit_message_text(f"❌ Товар '{item['name']}' больше недоступен")
+                return
+            if item["quantity"] > int(product.get("stock", 0)):
+                await query.edit_message_text(
+                    f"❌ Товара '{item['name']}' недостаточно на складе.\n"
+                    f"Доступно: {product['stock']} шт."
+                )
+                return
+        await query.edit_message_text("📝 Оформляем заказ...")
+        await query.message.reply_text(
+            "👤 Введите ваше имя:",
+            reply_markup=get_cancel_keyboard(),
+        )
+        return ASK_NAME
+
+
+async def edit_cart_item_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    idx = int(query.data.split("|")[1])
+    cart = context.user_data.get("cart", [])
+    
+    if idx >= len(cart):
+        await query.edit_message_text("❌ Товар не найден в корзине")
+        return
+    
+    item = cart[idx]
+    context.user_data["editing_cart_item"] = idx
+    
+    kb = [
+        [InlineKeyboardButton("🔢 Изменить количество", callback_data=f"changeqty|{idx}")],
+        [InlineKeyboardButton("🗑 Удалить", callback_data=f"removecart|{idx}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="edit_cart")],
+    ]
+    
+    await query.edit_message_text(
+        f"✏️ Редактирование:\n\n"
+        f"🏷 {sanitize(item['name'], 50)}\n"
+        f"💰 {item['price']:,.0f}₽ × {item['quantity']} = {item['price'] * item['quantity']:,.0f}₽",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def remove_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    idx = int(query.data.split("|")[1])
+    cart = context.user_data.get("cart", [])
+    
+    if idx < len(cart):
+        removed = cart.pop(idx)
+        context.user_data["cart"] = cart
+        await query.edit_message_text(f"🗑 {sanitize(removed['name'], 50)} удалён из корзины")
+    else:
+        await query.edit_message_text("❌ Товар не найден")
+
+
+async def change_cart_qty_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    idx = int(query.data.split("|")[1])
+    cart = context.user_data.get("cart", [])
+    
+    if idx >= len(cart):
+        await query.edit_message_text("❌ Товар не найден")
+        return
+    
+    item = cart[idx]
+    product = get_product(item["id"])
+    stock = int(product["stock"]) if product else 0
+    
+    context.user_data["editing_cart_item"] = idx
+    
+    await query.edit_message_text(
+        f"🔢 Введите новое количество для '{sanitize(item['name'], 50)}'\n"
+        f"Текущее: {item['quantity']} шт.\n"
+        f"Доступно на складе: {stock} шт.\n"
+        f"Или нажмите «Отмена»:"
+    )
+    return EDIT_CART_QTY
+
+
+async def change_cart_qty_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    
+    if text == "Отмена":
+        context.user_data.pop("editing_cart_item", None)
+        await update.message.reply_text(
+            "❌ Изменение отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    
+    try:
+        qty = int(text)
+    except:
+        await update.message.reply_text("❌ Введите целое число:")
+        return EDIT_CART_QTY
+    
+    if qty <= 0:
+        await update.message.reply_text("❌ Количество должно быть больше 0:")
+        return EDIT_CART_QTY
+    
+    idx = context.user_data.get("editing_cart_item")
+    cart = context.user_data.get("cart", [])
+    
+    if idx is None or idx >= len(cart):
+        await update.message.reply_text(
+            "❌ Товар не найден в корзине",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    
+    item = cart[idx]
+    product = get_product(item["id"])
+    
+    if product and qty > int(product.get("stock", 0)):
+        await update.message.reply_text(
+            f"❌ Недостаточно товара на складе.\n"
+            f"Доступно: {product['stock']} шт.\n"
+            f"Введите другое количество:"
+        )
+        return EDIT_CART_QTY
+    
+    item["quantity"] = qty
+    context.user_data["cart"] = cart
+    context.user_data.pop("editing_cart_item", None)
+    
+    await update.message.reply_text(
+        f"✅ Количество обновлено: {sanitize(item['name'], 50)} × {qty}",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return ConversationHandler.END
+
+
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text == "Отмена":
+        await update.message.reply_text(
+            "❌ Оформление отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    if not text:
+        await update.message.reply_text("❌ Введите имя:")
+        return ASK_NAME
+    context.user_data["client_name"] = text
+    kb = ReplyKeyboardMarkup(
+        [[KeyboardButton("📱 Поделиться номером", request_contact=True)], ["Отмена"]],
+        resize_keyboard=True,
+    )
+    await update.message.reply_text("📞 Отправьте номер:", reply_markup=kb)
+    return ASK_PHONE
+
+
+async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "Отмена":
+        await update.message.reply_text(
+            "❌ Оформление отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    if update.message.contact:
+        phone = update.message.contact.phone_number
+    else:
+        phone = update.message.text.strip()
+    phone = phone.replace("+", "").replace("-", "").replace("(", "").replace(")", "").replace(" ", "")
+    if phone.startswith("7"):
+        phone = "8" + phone[1:]
+    if not phone.startswith("8"):
+        phone = "8" + phone
+    if not phone.isdigit() or len(phone) != 11:
+        await update.message.reply_text("❌ Неверный номер")
+        return ASK_PHONE
+    context.user_data["phone"] = phone
+    await update.message.reply_text(
+        "💬 Комментарий или «Пропустить»:",
+        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+    )
+    return ASK_COMMENT
+
+
+async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text == "Отмена":
+        await update.message.reply_text(
+            "❌ Оформление отменено",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    if text == "Пропустить":
+        text = ""
+    cart = context.user_data.get("cart", [])
+    total = sum(i["price"] * i["quantity"] for i in cart)
+    
+    orders = load_orders()
+    order = {
+        "id": len(orders) + 1,
+        "client_name": context.user_data["client_name"],
+        "phone": context.user_data["phone"],
+        "comment": text,
+        "items": [dict(i) for i in cart],
+        "total": total,
+        "created_at": datetime.now(MOSCOW_TZ).isoformat(timespec="seconds"),
+    }
+    orders.append(order)
+    save_orders(orders)
+    
+    products = load_products()
+    for cart_item in cart:
+        for product in products:
+            if product["id"] == cart_item["id"]:
+                product["stock"] = int(product["stock"]) - cart_item["quantity"]
+                break
+    save_products(products)
+    
+    group_id = os.getenv("GROUP_CHAT_ID")
+    
+    if group_id:
+        try:
+            group_id_int = int(group_id)
+            
+            msg = (
+                f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
+                f"👤 Имя: {sanitize(order['client_name'], 50)}\n"
+                f"📞 Телефон: {sanitize(order['phone'])}"
+            )
+            if order['comment']:
+                msg += f"\n💬 Комментарий: {sanitize(order['comment'], 200)}"
+            msg += "\n\n📋 <b>Состав заказа:</b>"
+            for item in cart:
+                item_total = item['price'] * item['quantity']
+                msg += f"\n— {sanitize(item['name'], 50)} × {item['quantity']} = {item_total:,.0f}₽"
+            msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
+            
+            await context.bot.send_message(
+                chat_id=group_id_int,
+                text=msg,
+                parse_mode=ParseMode.HTML,
+            )
+            log.info(f"Order #{order['id']} sent to group")
+            
+        except Exception as e:
+            log.error(f"Failed to send order to group: {e}")
+    else:
+        log.error("GROUP_CHAT_ID is not set!")
+    
+    context.user_data["cart"] = []
+    await update.message.reply_text(
+        f"✅ Заказ №{order['id']} оформлен! Мы свяжемся с вами.",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return ConversationHandler.END
+
+
+# =========================================================
+# ORDERS
+# =========================================================
 
 async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_waiting_states(context)
@@ -1470,19 +1876,19 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🛒 <b>Заказ #{order['id']}</b>",
         "",
         f"📅 Дата: {date_str}",
-        f"👤 Имя: {sanitize(order['client_name'])}",
+        f"👤 Имя: {sanitize(order['client_name'], 50)}",
         f"📞 Телефон: {sanitize(order['phone'])}",
     ]
     
     if order.get('comment'):
-        lines.append(f"💬 Комментарий: {sanitize(order['comment'])}")
+        lines.append(f"💬 Комментарий: {sanitize(order['comment'], 200)}")
     
     lines.append("")
     lines.append("📋 <b>Состав заказа:</b>")
     
     for item in order.get('items', []):
         item_total = item['price'] * item['quantity']
-        lines.append(f"— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
+        lines.append(f"— {sanitize(item['name'], 50)} × {item['quantity']} = {item_total:,.0f}₽")
     
     lines.append("")
     lines.append(f"💰 <b>Итого: {order['total']:,.0f}₽</b>")
@@ -1530,392 +1936,12 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# ADD TO CART QTY
-# =========================================================
-
-async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text == "Отмена":
-        await update.message.reply_text(
-            "❌ Добавление отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    try:
-        qty = int(text)
-    except:
-        await update.message.reply_text(
-            "❌ Введите целое число.\nИли нажмите «Отмена»:",
-            reply_markup=get_cancel_keyboard(),
-        )
-        return ADD_TO_CART_QTY
-    pid = context.user_data["adding_product_id"]
-    product = get_product(pid)
-    if not product:
-        await update.message.reply_text(
-            "❌ Товар не найден",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    if qty <= 0:
-        await update.message.reply_text(
-            "❌ Количество должно быть больше 0.\nВведите другое количество или нажмите «Отмена»:",
-            reply_markup=get_cancel_keyboard(),
-        )
-        return ADD_TO_CART_QTY
-    stock = int(product["stock"])
-    if qty > stock:
-        await update.message.reply_text(
-            f"❌ Недостаточно товара на складе.\n"
-            f"Доступно: {stock} шт.\n"
-            f"Введите другое количество или нажмите «Отмена»:",
-            reply_markup=get_cancel_keyboard(),
-        )
-        return ADD_TO_CART_QTY
-    cart = context.user_data.setdefault("cart", [])
-    existing = None
-    for item in cart:
-        if item["id"] == pid:
-            existing = item
-            break
-    if existing:
-        new_qty = existing["quantity"] + qty
-        if new_qty > stock:
-            await update.message.reply_text(
-                f"❌ Недостаточно товара на складе.\n"
-                f"В корзине уже {existing['quantity']} шт., доступно всего {stock} шт.\n"
-                f"Можно добавить ещё {stock - existing['quantity']} шт.\n"
-                f"Введите другое количество или нажмите «Отмена»:",
-                reply_markup=get_cancel_keyboard(),
-            )
-            return ADD_TO_CART_QTY
-        existing["quantity"] = new_qty
-    else:
-        cart.append({
-            "id": pid,
-            "name": product["name"],
-            "price": product["price"],
-            "quantity": qty,
-        })
-    await update.message.reply_text(
-        f"✅ {sanitize(product['name'])} × {qty} добавлено в корзину",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
-    return ConversationHandler.END
-
-
-# =========================================================
-# CHECKOUT
-# =========================================================
-
-async def cart_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "clear_cart":
-        context.user_data["cart"] = []
-        await query.edit_message_text("🗑 Корзина очищена")
-        return
-    
-    if query.data == "edit_cart":
-        cart = context.user_data.get("cart", [])
-        if not cart:
-            await query.edit_message_text("🛒 Корзина пуста")
-            return
-        kb = []
-        for i, item in enumerate(cart):
-            kb.append([
-                InlineKeyboardButton(
-                    f"✏️ {sanitize(item['name'], 25)} × {item['quantity']}",
-                    callback_data=f"editcartitem|{i}"
-                )
-            ])
-        kb.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_cart")])
-        await query.edit_message_text(
-            "✏️ Выберите товар для редактирования:",
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
-        return
-    
-    if query.data == "back_to_cart":
-        await view_cart(update, context)
-        return
-    
-    if query.data == "checkout":
-        cart = context.user_data.get("cart", [])
-        if not cart:
-            await query.edit_message_text("🛒 Корзина пуста")
-            return
-        for item in cart:
-            product = get_product(item["id"])
-            if not product:
-                await query.edit_message_text(f"❌ Товар '{item['name']}' больше недоступен")
-                return
-            if item["quantity"] > int(product.get("stock", 0)):
-                await query.edit_message_text(
-                    f"❌ Товара '{item['name']}' недостаточно на складе.\n"
-                    f"Доступно: {product['stock']} шт."
-                )
-                return
-        await query.edit_message_text("📝 Оформляем заказ...")
-        await query.message.reply_text(
-            "👤 Введите ваше имя:",
-            reply_markup=get_cancel_keyboard(),
-        )
-        return ASK_NAME
-
-
-async def edit_cart_item_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    idx = int(query.data.split("|")[1])
-    cart = context.user_data.get("cart", [])
-    
-    if idx >= len(cart):
-        await query.edit_message_text("❌ Товар не найден в корзине")
-        return
-    
-    item = cart[idx]
-    context.user_data["editing_cart_item"] = idx
-    
-    kb = [
-        [InlineKeyboardButton("🔢 Изменить количество", callback_data=f"changeqty|{idx}")],
-        [InlineKeyboardButton("🗑 Удалить", callback_data=f"removecart|{idx}")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="edit_cart")],
-    ]
-    
-    await query.edit_message_text(
-        f"✏️ Редактирование:\n\n"
-        f"🏷 {sanitize(item['name'])}\n"
-        f"💰 {item['price']:,.0f}₽ × {item['quantity']} = {item['price'] * item['quantity']:,.0f}₽",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-async def remove_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    idx = int(query.data.split("|")[1])
-    cart = context.user_data.get("cart", [])
-    
-    if idx < len(cart):
-        removed = cart.pop(idx)
-        context.user_data["cart"] = cart
-        await query.edit_message_text(f"🗑 {sanitize(removed['name'])} удалён из корзины")
-    else:
-        await query.edit_message_text("❌ Товар не найден")
-
-
-async def change_cart_qty_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    idx = int(query.data.split("|")[1])
-    cart = context.user_data.get("cart", [])
-    
-    if idx >= len(cart):
-        await query.edit_message_text("❌ Товар не найден")
-        return
-    
-    item = cart[idx]
-    product = get_product(item["id"])
-    stock = int(product["stock"]) if product else 0
-    
-    context.user_data["editing_cart_item"] = idx
-    
-    await query.edit_message_text(
-        f"🔢 Введите новое количество для '{sanitize(item['name'], 50)}'\n"
-        f"Текущее: {item['quantity']} шт.\n"
-        f"Доступно на складе: {stock} шт.\n"
-        f"Или нажмите «Отмена»:"
-    )
-    return EDIT_CART_QTY
-
-
-async def change_cart_qty_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    
-    if text == "Отмена":
-        context.user_data.pop("editing_cart_item", None)
-        await update.message.reply_text(
-            "❌ Изменение отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    
-    try:
-        qty = int(text)
-    except:
-        await update.message.reply_text("❌ Введите целое число:")
-        return EDIT_CART_QTY
-    
-    if qty <= 0:
-        await update.message.reply_text("❌ Количество должно быть больше 0:")
-        return EDIT_CART_QTY
-    
-    idx = context.user_data.get("editing_cart_item")
-    cart = context.user_data.get("cart", [])
-    
-    if idx is None or idx >= len(cart):
-        await update.message.reply_text(
-            "❌ Товар не найден в корзине",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    
-    item = cart[idx]
-    product = get_product(item["id"])
-    
-    if product and qty > int(product.get("stock", 0)):
-        await update.message.reply_text(
-            f"❌ Недостаточно товара на складе.\n"
-            f"Доступно: {product['stock']} шт.\n"
-            f"Введите другое количество:"
-        )
-        return EDIT_CART_QTY
-    
-    item["quantity"] = qty
-    context.user_data["cart"] = cart
-    context.user_data.pop("editing_cart_item", None)
-    
-    await update.message.reply_text(
-        f"✅ Количество обновлено: {sanitize(item['name'])} × {qty}",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
-    return ConversationHandler.END
-
-
-async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text == "Отмена":
-        await update.message.reply_text(
-            "❌ Оформление отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    if not text:
-        await update.message.reply_text("❌ Введите имя:")
-        return ASK_NAME
-    context.user_data["client_name"] = text
-    kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("📱 Поделиться номером", request_contact=True)], ["Отмена"]],
-        resize_keyboard=True,
-    )
-    await update.message.reply_text("📞 Отправьте номер:", reply_markup=kb)
-    return ASK_PHONE
-
-
-async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "Отмена":
-        await update.message.reply_text(
-            "❌ Оформление отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    if update.message.contact:
-        phone = update.message.contact.phone_number
-    else:
-        phone = update.message.text.strip()
-    phone = phone.replace("+", "").replace("-", "").replace("(", "").replace(")", "").replace(" ", "")
-    if phone.startswith("7"):
-        phone = "8" + phone[1:]
-    if not phone.startswith("8"):
-        phone = "8" + phone
-    if not phone.isdigit() or len(phone) != 11:
-        await update.message.reply_text("❌ Неверный номер")
-        return ASK_PHONE
-    context.user_data["phone"] = phone
-    await update.message.reply_text(
-        "💬 Комментарий или «Пропустить»:",
-        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
-    )
-    return ASK_COMMENT
-
-
-async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text == "Отмена":
-        await update.message.reply_text(
-            "❌ Оформление отменено",
-            reply_markup=get_reply_markup(update.effective_user.id),
-        )
-        return ConversationHandler.END
-    if text == "Пропустить":
-        text = ""
-    cart = context.user_data.get("cart", [])
-    total = sum(i["price"] * i["quantity"] for i in cart)
-    
-    orders = load_orders()
-    order = {
-        "id": len(orders) + 1,
-        "client_name": context.user_data["client_name"],
-        "phone": context.user_data["phone"],
-        "comment": text,
-        "items": [dict(i) for i in cart],
-        "total": total,
-        "created_at": datetime.now(MOSCOW_TZ).isoformat(timespec="seconds"),
-    }
-    orders.append(order)
-    save_orders(orders)
-    
-    products = load_products()
-    for cart_item in cart:
-        for product in products:
-            if product["id"] == cart_item["id"]:
-                product["stock"] = int(product["stock"]) - cart_item["quantity"]
-                break
-    save_products(products)
-    
-    group_id = os.getenv("GROUP_CHAT_ID")
-    
-    if group_id:
-        try:
-            group_id_int = int(group_id)
-            
-            msg = (
-                f"🛒 <b>Новый заказ #{order['id']}</b>\n\n"
-                f"👤 Имя: {sanitize(order['client_name'])}\n"
-                f"📞 Телефон: {sanitize(order['phone'])}"
-            )
-            if order['comment']:
-                msg += f"\n💬 Комментарий: {sanitize(order['comment'])}"
-            msg += "\n\n📋 <b>Состав заказа:</b>"
-            for item in cart:
-                item_total = item['price'] * item['quantity']
-                msg += f"\n— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽"
-            msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
-            
-            await context.bot.send_message(
-                chat_id=group_id_int,
-                text=msg,
-                parse_mode=ParseMode.HTML,
-            )
-            log.info(f"Order #{order['id']} sent to group")
-            
-        except Exception as e:
-            log.error(f"Failed to send order to group: {e}")
-    else:
-        log.error("GROUP_CHAT_ID is not set!")
-    
-    context.user_data["cart"] = []
-    await update.message.reply_text(
-        f"✅ Заказ №{order['id']} оформлен! Мы свяжемся с вами.",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
-    return ConversationHandler.END
-
-
-# =========================================================
 # MENU ROUTER
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text if update.message else None
     
-    # Кнопки меню (прерывают текущий процесс)
     menu_buttons = [
         "📦 Каталог", "🛒 Корзина",
         "📦 Управление товарами", "📂 Управление категориями", "📋 Заказы",
@@ -1923,28 +1949,29 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "ℹ️ Инфо", "🛑 Стоп"
     ]
     
-    # Проверяем, находится ли пользователь в режиме ожидания
     is_waiting = context.user_data.get("awaiting_rename") or context.user_data.get("awaiting_photo") or context.user_data.get("edit_field")
     
-    # Если пользователь в режиме ожидания и нажал на кнопку меню
     if is_waiting and text and text in menu_buttons:
         clear_waiting_states(context)
         await update.message.reply_text(
             "⚠️ Действие прервано. Начинаем новый процесс...",
             reply_markup=get_reply_markup(update.effective_user.id),
         )
-        # Продолжаем обработку кнопки меню
     elif is_waiting:
-        # Если в режиме ожидания и ввод не является кнопкой меню
         if context.user_data.get("awaiting_rename"):
-            await handle_rename_input(update, context)
+            result = await handle_rename_input(update, context)
+            if result:
+                return
         elif context.user_data.get("awaiting_photo"):
-            await handle_photo_edit(update, context)
+            result = await handle_photo_edit(update, context)
+            if result:
+                return
         elif context.user_data.get("edit_field"):
-            await handle_edit_field(update, context)
+            result = await handle_edit_field(update, context)
+            if result:
+                return
         return
     
-    # Обработка команд /start, /info, /stop
     if text and text.startswith('/'):
         if text == "/start":
             clear_waiting_states(context)
@@ -1961,7 +1988,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Обычные кнопки меню
     if text == "📦 Каталог":
         return await show_categories(update, context)
     if text == "🛒 Корзина":
@@ -2014,18 +2040,12 @@ def main():
     
     asyncio.get_event_loop().run_until_complete(cleanup())
     
-    # =========================================================
-    # КОМАНДЫ БОТА
-    # =========================================================
-    
+    # Команды бота
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("stop", stop_command))
     
-    # =========================================================
-    # ДИАЛОГИ
-    # =========================================================
-    
+    # Диалоги
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_prompt)],
         states={NEW_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_category_name)]},
@@ -2083,10 +2103,7 @@ def main():
         allow_reentry=True,
     ))
     
-    # =========================================================
-    # CALLBACK QUERY HANDLERS
-    # =========================================================
-    
+    # Callback handlers
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
     app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
     app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
@@ -2106,10 +2123,7 @@ def main():
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     
-    # =========================================================
-    # ОСНОВНОЙ РОУТЕР
-    # =========================================================
-    
+    # Основной роутер
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
     app.add_handler(MessageHandler(filters.PHOTO, menu_router))
     
