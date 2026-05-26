@@ -249,15 +249,12 @@ def get_cancel_keyboard():
 
 
 def get_product_photo_bytes(product: dict) -> Optional[bytes]:
-    """Получение фото товара в виде байтов"""
-    # Сначала проверяем base64
     if product.get("photo_base64"):
         try:
             return base64.b64decode(product["photo_base64"])
         except:
             pass
     
-    # Если нет base64, проверяем файл (для обратной совместимости)
     if product.get("photo"):
         photo_path = os.path.join(PHOTOS_DIR, product["photo"])
         if os.path.exists(photo_path):
@@ -267,12 +264,31 @@ def get_product_photo_bytes(product: dict) -> Optional[bytes]:
     return None
 
 
+def get_tech_category_name():
+    return "📦 Без категории"
+
+
+def is_hidden_category(category_name: str) -> bool:
+    return category_name == get_tech_category_name()
+
+
+def clear_waiting_states(context: ContextTypes.DEFAULT_TYPE):
+    """Очищает все состояния ожидания"""
+    keys_to_clear = [
+        "awaiting_rename", "awaiting_photo", "edit_field",
+        "rename_old_cat", "edit_product", "new_product",
+        "adding_product_id", "editing_cart_item"
+    ]
+    for key in keys_to_clear:
+        context.user_data.pop(key, None)
+
+
 # =========================================================
 # COMMANDS
 # =========================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start - запуск бота"""
+    clear_waiting_states(context)
     context.user_data.setdefault("cart", [])
     user_id = update.effective_user.id
     
@@ -294,7 +310,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /info - информация о магазине"""
+    clear_waiting_states(context)
     info_text = (
         "🤖 <b>О боте-магазине</b>\n\n"
         "Этот бот поможет вам быстро и удобно покупать товары!\n\n"
@@ -348,10 +364,8 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /stop - очистка данных пользователя"""
+    clear_waiting_states(context)
     user_id = update.effective_user.id
-    
-    # Очищаем все данные пользователя
     context.user_data.clear()
     
     await update.message.reply_text(
@@ -386,6 +400,7 @@ async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def new_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
     await update.message.reply_text(
@@ -420,13 +435,21 @@ async def new_category_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
     categories = load_categories()
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
-    kb = [[InlineKeyboardButton(cat, callback_data=f"managecat|{cat}")] for cat in categories]
+    
+    kb = []
+    for cat in categories:
+        if is_hidden_category(cat):
+            kb.append([InlineKeyboardButton(f"🔧 {cat} (техническая)", callback_data=f"managecat|{cat}")])
+        else:
+            kb.append([InlineKeyboardButton(cat, callback_data=f"managecat|{cat}")])
+    
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
             "📂 Выберите категорию для управления:",
@@ -445,6 +468,16 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update.effective_user.id):
         return
     cat = query.data.split("|", 1)[1]
+    
+    if is_hidden_category(cat):
+        kb = [[InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")]]
+        await query.edit_message_text(
+            f"🔧 Категория '{cat}' является технической и не может быть изменена или удалена.\n\n"
+            f"Она нужна для товаров, у которых нет категории.",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
     kb = [
         [InlineKeyboardButton("✏️ Переименовать", callback_data=f"renamecat|{cat}")],
         [InlineKeyboardButton("🗑 Удалить", callback_data=f"deletecat|{cat}")],
@@ -463,21 +496,34 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update.effective_user.id):
         return
     cat = query.data.split("|", 1)[1]
+    
+    if is_hidden_category(cat):
+        kb = [[InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")]]
+        await query.edit_message_text(
+            f"🔧 Техническая категория '{cat}' не может быть переименована.",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
     await query.edit_message_text(
-        f"✏️ Введите новое название для категории '{cat}'\nИли нажмите «Отмена»:"
+        f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
+        reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
     )
 
 
 async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_rename"):
         return False
+    
     if not is_admin(update.effective_user.id):
         context.user_data.pop("awaiting_rename", None)
         context.user_data.pop("rename_old_cat", None)
         return False
+    
     text = update.message.text.strip()
+    
     if text == "Отмена":
         context.user_data.pop("awaiting_rename", None)
         context.user_data.pop("rename_old_cat", None)
@@ -486,31 +532,49 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         return True
+    
     old_name = context.user_data.get("rename_old_cat")
     if not old_name:
         context.user_data.pop("awaiting_rename", None)
-        return False
+        await update.message.reply_text("❌ Ошибка: категория не найдена")
+        return True
+    
     if not text:
-        await update.message.reply_text("❌ Введите название:")
+        await update.message.reply_text(
+            "❌ Введите название:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     if len(text) > 50:
-        await update.message.reply_text("❌ Слишком длинное название (макс. 50 символов)")
+        await update.message.reply_text(
+            "❌ Слишком длинное название (макс. 50 символов)\n\nВведите другое название или нажмите «Отмена»:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     cats = load_categories()
     if text in cats and text != old_name:
-        await update.message.reply_text("❌ Категория с таким названием уже существует")
+        await update.message.reply_text(
+            "❌ Категория с таким названием уже существует\n\nВведите другое название или нажмите «Отмена»:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     if old_name in cats:
         cats.remove(old_name)
         cats.append(text)
         save_categories(cats)
+    
     products = load_products()
     for p in products:
         if p.get("category") == old_name:
             p["category"] = text
     save_products(products)
+    
     context.user_data.pop("awaiting_rename", None)
     context.user_data.pop("rename_old_cat", None)
+    
     await update.message.reply_text(
         f"✅ Категория '{old_name}' переименована в '{text}'",
         reply_markup=get_reply_markup(update.effective_user.id),
@@ -524,10 +588,19 @@ async def delete_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update.effective_user.id):
         return
     cat = query.data.split("|", 1)[1]
+    
+    if is_hidden_category(cat):
+        kb = [[InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")]]
+        await query.edit_message_text(
+            f"🔧 Техническая категория '{cat}' не может быть удалена.",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        return
+    
     products_in_cat = len([p for p in load_products() if p.get("category") == cat])
     warning = ""
     if products_in_cat > 0:
-        warning = f"\n⚠️ В категории {products_in_cat} товаров. Они останутся без категории."
+        warning = f"\n⚠️ В категории {products_in_cat} товаров. Они будут перемещены в «{get_tech_category_name()}»."
     kb = [
         [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirmdel|{cat}")],
         [InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")],
@@ -545,15 +618,27 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         return
     cat = query.data.split("|", 1)[1]
     cats = load_categories()
+    
     if cat in cats:
         cats.remove(cat)
         save_categories(cats)
+    
     products = load_products()
+    tech_category = get_tech_category_name()
+    
+    cats_after = load_categories()
+    if tech_category not in cats_after:
+        cats_after.append(tech_category)
+        save_categories(cats_after)
+    
     for p in products:
         if p.get("category") == cat:
-            p["category"] = ""
+            p["category"] = tech_category
     save_products(products)
-    await query.edit_message_text(f"✅ Категория '{cat}' удалена")
+    
+    await query.edit_message_text(
+        f"✅ Категория '{cat}' удалена. Товары перемещены в '{tech_category}'"
+    )
 
 
 # =========================================================
@@ -561,6 +646,7 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
 # =========================================================
 
 async def add_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
     context.user_data["new_product"] = {}
@@ -640,7 +726,16 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         return ConversationHandler.END
-    keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in categories]
+    
+    available_categories = [cat for cat in categories if not is_hidden_category(cat)]
+    if not available_categories:
+        await update.message.reply_text(
+            "❌ Нет доступных категорий. Сначала создайте категорию.",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return ConversationHandler.END
+    
+    keyboard = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in available_categories]
     await update.message.reply_text(
         "📂 Выберите категорию:",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -670,9 +765,7 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        # Скачиваем фото в память
         photo_data = await file.download_as_bytearray()
-        # Конвертируем в base64
         product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
         product["photo"] = ""
         log.info(f"✅ Photo saved as base64 for product #{product['id']}")
@@ -697,6 +790,7 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
     
@@ -705,7 +799,12 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("📂 Сначала создайте категории")
         return
     
-    kb = [[InlineKeyboardButton(cat, callback_data=f"admincat|{cat}")] for cat in categories]
+    kb = []
+    for cat in categories:
+        if is_hidden_category(cat):
+            kb.append([InlineKeyboardButton(f"🔧 {cat}", callback_data=f"admincat|{cat}")])
+        else:
+            kb.append([InlineKeyboardButton(cat, callback_data=f"admincat|{cat}")])
     
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
@@ -790,7 +889,6 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{product.get('category', '')}")],
     ]
     
-    # Получаем фото из base64 или файла
     photo_bytes = get_product_photo_bytes(product)
     
     try:
@@ -829,7 +927,8 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
         await query.message.reply_text(text, reply_markup=kb)
     elif field == "category":
         categories = load_categories()
-        kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in categories]
+        available_categories = [cat for cat in categories if not is_hidden_category(cat)]
+        kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in available_categories]
         kb.append([InlineKeyboardButton("🔙 Назад", callback_data=f"editprod|{context.user_data['edit_product']['id']}")])
         await query.message.reply_text("📂 Выберите новую категорию:", reply_markup=InlineKeyboardMarkup(kb))
     elif field == "photo":
@@ -888,7 +987,6 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = load_products()
     for i, p in enumerate(products):
         if p["id"] == product["id"]:
-            # Сохраняем существующее фото если его нет
             if not product.get("photo_base64") and p.get("photo_base64"):
                 product["photo_base64"] = p["photo_base64"]
             products[i] = product
@@ -954,7 +1052,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("awaiting_photo", None)
         return False
     
-    # Проверяем Отмену
     if update.message and update.message.text and update.message.text == "Отмена":
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
@@ -964,16 +1061,13 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return True
     
-    # Проверяем фото
     if update.message and update.message.photo:
-        # Сохраняем новое фото в base64
         photo = update.message.photo[-1]
         file = await photo.get_file()
         photo_data = await file.download_as_bytearray()
         product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
         product["photo"] = ""
         
-        # Обновляем в хранилище
         products = load_products()
         found = False
         for i, p in enumerate(products):
@@ -985,12 +1079,10 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             products.append(product)
         save_products(products)
         
-        # Очищаем состояние
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
         context.user_data.pop("edit_product", None)
         
-        # Показываем результат
         product_text = format_product(product)
         admin_info = (
             f"\n\n📋 <b>Информация:</b>\n"
@@ -998,7 +1090,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Категория: {sanitize(product.get('category', '—'))}"
         )
         
-        # Отправляем фото из base64
         photo_bytes = base64.b64decode(product["photo_base64"])
         await update.message.reply_photo(
             photo=photo_bytes,
@@ -1008,7 +1099,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return True
     
-    # Если пришло не фото и не отмена
     await update.message.reply_text(
         "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
         reply_markup=get_cancel_keyboard(),
@@ -1026,7 +1116,6 @@ async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TY
     if not product:
         await query.edit_message_text("❌ Товар не найден")
         return
-    # Удаляем файл фото если есть (для обратной совместимости)
     if product.get("photo"):
         path = os.path.join(PHOTOS_DIR, product["photo"])
         if os.path.exists(path):
@@ -1045,10 +1134,19 @@ async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TY
 # =========================================================
 
 async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
     categories = load_categories()
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
+    
+    if not is_admin(update.effective_user.id):
+        categories = [cat for cat in categories if not is_hidden_category(cat)]
+    
+    if not categories:
+        await update.message.reply_text("📂 Категорий пока нет")
+        return
+    
     kb = [[InlineKeyboardButton(cat, callback_data=f"showcat|{cat}")] for cat in categories]
     await update.message.reply_text(
         "📂 Выберите категорию:",
@@ -1106,7 +1204,6 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
     
-    # Получаем фото из base64 или файла
     photo_bytes = get_product_photo_bytes(p)
     
     try:
@@ -1185,6 +1282,247 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # CART
 # =========================================================
 
+async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
+    cart = context.user_data.get("cart", [])
+    if not cart:
+        if hasattr(update, "callback_query") and update.callback_query:
+            await update.callback_query.edit_message_text("🛒 Корзина пуста")
+        else:
+            await update.message.reply_text("🛒 Корзина пуста")
+        return
+    
+    total = 0
+    lines = ["🛒 <b>Корзина:</b>\n"]
+    warnings = []
+    
+    for item in cart:
+        item_total = item["price"] * item["quantity"]
+        total += item_total
+        lines.append(f"{sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
+        
+        product = get_product(item["id"])
+        if product:
+            stock = int(product.get("stock", 0))
+            if item["quantity"] > stock:
+                if stock > 0:
+                    warnings.append(f"⚠️ {sanitize(item['name'])}: доступно только {stock} шт.")
+                    item["quantity"] = stock
+                else:
+                    warnings.append(f"❌ {sanitize(item['name'])}: товар закончился")
+    
+    if warnings:
+        total = sum(i["price"] * i["quantity"] for i in cart)
+        context.user_data["cart"] = [i for i in cart if i["quantity"] > 0]
+        cart = context.user_data["cart"]
+    
+    lines.append(f"\n💰 Итого: {total:,.0f}₽")
+    
+    if warnings:
+        lines.append("\n⚠️ <b>Внимание:</b>")
+        lines.extend(warnings)
+    
+    kb = []
+    if cart:
+        kb.append([InlineKeyboardButton("✅ Оформить", callback_data="checkout")])
+    kb.append([InlineKeyboardButton("✏️ Редактировать", callback_data="edit_cart")])
+    kb.append([InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart")])
+    
+    if hasattr(update, "callback_query") and update.callback_query:
+        await update.callback_query.edit_message_text(
+            "\n".join(lines), parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+    else:
+        await update.message.reply_text(
+            "\n".join(lines), parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+
+
+async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
+    if not is_admin(update.effective_user.id):
+        return
+    
+    orders = load_orders()
+    if not orders:
+        if hasattr(update, "callback_query") and update.callback_query:
+            await update.callback_query.edit_message_text("📋 Заказов пока нет")
+        else:
+            await update.message.reply_text("📋 Заказов пока нет")
+        return
+    
+    orders_sorted = sorted(orders, key=lambda x: x['id'], reverse=True)
+    
+    if hasattr(update, "callback_query") and update.callback_query:
+        if "|" in update.callback_query.data and update.callback_query.data.startswith("orders_page|"):
+            page = int(update.callback_query.data.split("|")[1])
+        else:
+            page = context.user_data.get("orders_page", 0)
+    else:
+        page = context.user_data.get("orders_page", 0)
+    
+    total_pages = (len(orders_sorted) + 9) // 10
+    start_idx = page * 10
+    end_idx = min(start_idx + 10, len(orders_sorted))
+    current_orders = orders_sorted[start_idx:end_idx]
+    
+    context.user_data["orders_page"] = page
+    context.user_data["orders_total_pages"] = total_pages
+    
+    kb = []
+    for o in current_orders:
+        try:
+            order_date = datetime.fromisoformat(o['created_at'])
+            date_str = order_date.strftime("%d.%m.%Y %H:%M")
+        except:
+            date_str = o.get('created_at', '—')
+        
+        kb.append([
+            InlineKeyboardButton(
+                f"#{o['id']} | {sanitize(o['client_name'], 20)} | {o['total']:,.0f}₽ | {date_str}",
+                callback_data=f"orderdetail|{o['id']}"
+            )
+        ])
+    
+    nav_buttons = []
+    
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Предыдущие", callback_data=f"orders_page|{page - 1}"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Следующие ▶️", callback_data=f"orders_page|{page + 1}"))
+    
+    if nav_buttons:
+        kb.append(nav_buttons)
+    
+    page_info = f"\n📄 Страница {page + 1} из {total_pages} | Всего заказов: {len(orders_sorted)}"
+    
+    message_text = f"📋 <b>История заказов:</b>{page_info}\n\n"
+    if not current_orders:
+        message_text += "❌ Заказов не найдено"
+    
+    if hasattr(update, "callback_query") and update.callback_query:
+        await update.callback_query.edit_message_text(
+            message_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
+        )
+    else:
+        await update.message.reply_text(
+            message_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
+        )
+
+
+async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    page = int(query.data.split("|")[1])
+    context.user_data["orders_page"] = page
+    
+    await show_orders(update, context)
+
+
+async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    order_id = int(query.data.split("|")[1])
+    orders = load_orders()
+    
+    order = None
+    for o in orders:
+        if o['id'] == order_id:
+            order = o
+            break
+    
+    if not order:
+        await query.edit_message_text("❌ Заказ не найден")
+        return
+    
+    try:
+        order_date = datetime.fromisoformat(order['created_at'])
+        date_str = order_date.strftime("%d.%m.%Y в %H:%M")
+    except:
+        date_str = order.get('created_at', '—')
+    
+    lines = [
+        f"🛒 <b>Заказ #{order['id']}</b>",
+        "",
+        f"📅 Дата: {date_str}",
+        f"👤 Имя: {sanitize(order['client_name'])}",
+        f"📞 Телефон: {sanitize(order['phone'])}",
+    ]
+    
+    if order.get('comment'):
+        lines.append(f"💬 Комментарий: {sanitize(order['comment'])}")
+    
+    lines.append("")
+    lines.append("📋 <b>Состав заказа:</b>")
+    
+    for item in order.get('items', []):
+        item_total = item['price'] * item['quantity']
+        lines.append(f"— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
+    
+    lines.append("")
+    lines.append(f"💰 <b>Итого: {order['total']:,.0f}₽</b>")
+    
+    kb = [[InlineKeyboardButton("🔙 К списку заказов", callback_data="back_to_orders")]]
+    
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+
+
+# =========================================================
+# ADMINS
+# =========================================================
+
+async def add_admin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_waiting_states(context)
+    await update.message.reply_text(
+        "Введите Telegram ID:",
+        reply_markup=get_cancel_keyboard(),
+    )
+    return ADD_ADMIN_ID
+
+
+async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text == "Отмена":
+        return await cancel_action(update, context)
+    try:
+        uid = int(text)
+    except:
+        await update.message.reply_text("❌ ID должен быть числом")
+        return ADD_ADMIN_ID
+    admins = load_admins()
+    if uid not in admins:
+        admins.append(uid)
+        save_admins(admins)
+    await update.message.reply_text(
+        "✅ Менеджер добавлен",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    return ConversationHandler.END
+
+
+# =========================================================
+# ADD TO CART QTY
+# =========================================================
+
 async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text == "Отмена":
@@ -1257,65 +1595,8 @@ async def add_to_cart_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# VIEW CART
+# CHECKOUT
 # =========================================================
-
-async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cart = context.user_data.get("cart", [])
-    if not cart:
-        if hasattr(update, "callback_query") and update.callback_query:
-            await update.callback_query.edit_message_text("🛒 Корзина пуста")
-        else:
-            await update.message.reply_text("🛒 Корзина пуста")
-        return
-    
-    total = 0
-    lines = ["🛒 <b>Корзина:</b>\n"]
-    warnings = []
-    
-    for item in cart:
-        item_total = item["price"] * item["quantity"]
-        total += item_total
-        lines.append(f"{sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
-        
-        product = get_product(item["id"])
-        if product:
-            stock = int(product.get("stock", 0))
-            if item["quantity"] > stock:
-                if stock > 0:
-                    warnings.append(f"⚠️ {sanitize(item['name'])}: доступно только {stock} шт.")
-                    item["quantity"] = stock
-                else:
-                    warnings.append(f"❌ {sanitize(item['name'])}: товар закончился")
-    
-    if warnings:
-        total = sum(i["price"] * i["quantity"] for i in cart)
-        context.user_data["cart"] = [i for i in cart if i["quantity"] > 0]
-        cart = context.user_data["cart"]
-    
-    lines.append(f"\n💰 Итого: {total:,.0f}₽")
-    
-    if warnings:
-        lines.append("\n⚠️ <b>Внимание:</b>")
-        lines.extend(warnings)
-    
-    kb = []
-    if cart:
-        kb.append([InlineKeyboardButton("✅ Оформить", callback_data="checkout")])
-    kb.append([InlineKeyboardButton("✏️ Редактировать", callback_data="edit_cart")])
-    kb.append([InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart")])
-    
-    if hasattr(update, "callback_query") and update.callback_query:
-        await update.callback_query.edit_message_text(
-            "\n".join(lines), parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
-    else:
-        await update.message.reply_text(
-            "\n".join(lines), parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
-
 
 async def cart_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1497,10 +1778,6 @@ async def change_cart_qty_execute(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
-# =========================================================
-# CHECKOUT
-# =========================================================
-
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text == "Отмена":
@@ -1582,7 +1859,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Отправка в группу
     group_id = os.getenv("GROUP_CHAT_ID")
     
     if group_id:
@@ -1623,231 +1899,65 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# ORDERS
-# =========================================================
-
-async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    
-    orders = load_orders()
-    if not orders:
-        if hasattr(update, "callback_query") and update.callback_query:
-            await update.callback_query.edit_message_text("📋 Заказов пока нет")
-        else:
-            await update.message.reply_text("📋 Заказов пока нет")
-        return
-    
-    # Сортируем заказы по убыванию ID (новые сверху)
-    orders_sorted = sorted(orders, key=lambda x: x['id'], reverse=True)
-    
-    # Инициализируем номер страницы (0 - первая страница с самыми новыми)
-    if hasattr(update, "callback_query") and update.callback_query:
-        # Если это callback, берем страницу из data или из контекста
-        if "|" in update.callback_query.data and update.callback_query.data.startswith("orders_page|"):
-            page = int(update.callback_query.data.split("|")[1])
-        else:
-            page = context.user_data.get("orders_page", 0)
-    else:
-        page = context.user_data.get("orders_page", 0)
-    
-    total_pages = (len(orders_sorted) + 9) // 10  # округление вверх
-    start_idx = page * 10
-    end_idx = min(start_idx + 10, len(orders_sorted))
-    current_orders = orders_sorted[start_idx:end_idx]
-    
-    # Сохраняем текущую страницу
-    context.user_data["orders_page"] = page
-    context.user_data["orders_total_pages"] = total_pages
-    
-    # Создаем кнопки для заказов на текущей странице
-    kb = []
-    for o in current_orders:
-        try:
-            order_date = datetime.fromisoformat(o['created_at'])
-            date_str = order_date.strftime("%d.%m.%Y %H:%M")
-        except:
-            date_str = o.get('created_at', '—')
-        
-        kb.append([
-            InlineKeyboardButton(
-                f"#{o['id']} | {sanitize(o['client_name'], 20)} | {o['total']:,.0f}₽ | {date_str}",
-                callback_data=f"orderdetail|{o['id']}"
-            )
-        ])
-    
-    # Добавляем кнопки пагинации (только активные)
-    nav_buttons = []
-    
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("◀️ Предыдущие", callback_data=f"orders_page|{page - 1}"))
-    
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("Следующие ▶️", callback_data=f"orders_page|{page + 1}"))
-    
-    if nav_buttons:
-        kb.append(nav_buttons)
-    
-    # Информация о странице
-    page_info = f"\n📄 Страница {page + 1} из {total_pages} | Всего заказов: {len(orders_sorted)}"
-    
-    # Текст сообщения
-    message_text = f"📋 <b>История заказов:</b>{page_info}\n\n"
-    if not current_orders:
-        message_text += "❌ Заказов не найдено"
-    
-    # Отправляем сообщение
-    if hasattr(update, "callback_query") and update.callback_query:
-        await update.callback_query.edit_message_text(
-            message_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
-        )
-    else:
-        await update.message.reply_text(
-            message_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(kb) if kb else None,
-        )
-
-
-async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопок пагинации заказов"""
-    query = update.callback_query
-    await query.answer()
-    
-    if not is_admin(update.effective_user.id):
-        return
-    
-    # Получаем номер страницы из callback_data
-    page = int(query.data.split("|")[1])
-    context.user_data["orders_page"] = page
-    
-    # Переиспользуем функцию show_orders для отображения
-    await show_orders(update, context)
-
-
-async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if not is_admin(update.effective_user.id):
-        return
-    
-    order_id = int(query.data.split("|")[1])
-    orders = load_orders()
-    
-    order = None
-    for o in orders:
-        if o['id'] == order_id:
-            order = o
-            break
-    
-    if not order:
-        await query.edit_message_text("❌ Заказ не найден")
-        return
-    
-    try:
-        order_date = datetime.fromisoformat(order['created_at'])
-        date_str = order_date.strftime("%d.%m.%Y в %H:%M")
-    except:
-        date_str = order.get('created_at', '—')
-    
-    lines = [
-        f"🛒 <b>Заказ #{order['id']}</b>",
-        "",
-        f"📅 Дата: {date_str}",
-        f"👤 Имя: {sanitize(order['client_name'])}",
-        f"📞 Телефон: {sanitize(order['phone'])}",
-    ]
-    
-    if order.get('comment'):
-        lines.append(f"💬 Комментарий: {sanitize(order['comment'])}")
-    
-    lines.append("")
-    lines.append("📋 <b>Состав заказа:</b>")
-    
-    for item in order.get('items', []):
-        item_total = item['price'] * item['quantity']
-        lines.append(f"— {sanitize(item['name'])} × {item['quantity']} = {item_total:,.0f}₽")
-    
-    lines.append("")
-    lines.append(f"💰 <b>Итого: {order['total']:,.0f}₽</b>")
-    
-    kb = [[InlineKeyboardButton("🔙 К списку заказов", callback_data="back_to_orders")]]
-    
-    await query.edit_message_text(
-        "\n".join(lines),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(kb),
-    )
-
-
-# =========================================================
-# ADMINS
-# =========================================================
-
-async def add_admin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Введите Telegram ID:",
-        reply_markup=get_cancel_keyboard(),
-    )
-    return ADD_ADMIN_ID
-
-
-async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text == "Отмена":
-        return await cancel_action(update, context)
-    try:
-        uid = int(text)
-    except:
-        await update.message.reply_text("❌ ID должен быть числом")
-        return ADD_ADMIN_ID
-    admins = load_admins()
-    if uid not in admins:
-        admins.append(uid)
-        save_admins(admins)
-    await update.message.reply_text(
-        "✅ Менеджер добавлен",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
-    return ConversationHandler.END
-
-
-# =========================================================
-# MENU
+# MENU ROUTER
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Самая первая проверка — режим ожидания фото
-    if context.user_data.get("awaiting_photo"):
-        if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
+    text = update.message.text if update.message else None
+    
+    # Кнопки меню (прерывают текущий процесс)
+    menu_buttons = [
+        "📦 Каталог", "🛒 Корзина",
+        "📦 Управление товарами", "📂 Управление категориями", "📋 Заказы",
+        "➕ Добавить категорию", "➕ Добавить товар", "👤 Добавить менеджера",
+        "ℹ️ Инфо", "🛑 Стоп"
+    ]
+    
+    # Проверяем, находится ли пользователь в режиме ожидания
+    is_waiting = context.user_data.get("awaiting_rename") or context.user_data.get("awaiting_photo") or context.user_data.get("edit_field")
+    
+    # Если пользователь в режиме ожидания и нажал на кнопку меню
+    if is_waiting and text and text in menu_buttons:
+        clear_waiting_states(context)
+        await update.message.reply_text(
+            "⚠️ Действие прервано. Начинаем новый процесс...",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        # Продолжаем обработку кнопки меню
+    elif is_waiting:
+        # Если в режиме ожидания и ввод не является кнопкой меню
+        if context.user_data.get("awaiting_rename"):
+            result = await handle_rename_input(update, context)
+            if result:
+                return
+        elif context.user_data.get("awaiting_photo"):
             result = await handle_photo_edit(update, context)
             if result:
                 return
-        elif update.message and update.message.text:
-            await update.message.reply_text(
-                "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
-                reply_markup=get_cancel_keyboard(),
-            )
+        elif context.user_data.get("edit_field"):
+            result = await handle_edit_field(update, context)
+            if result:
+                return
         return
-
-    # 2. Режим переименования
-    if context.user_data.get("awaiting_rename"):
-        result = await handle_rename_input(update, context)
-        if result:
-            return
-
-    # 3. Режим редактирования поля товара
-    if context.user_data.get("edit_field"):
-        result = await handle_edit_field(update, context)
-        if result:
-            return
-
-    # 4. Обычные кнопки меню
-    text = update.message.text if update.message else None
     
+    # Обработка команд /start, /info, /stop
+    if text and text.startswith('/'):
+        if text == "/start":
+            clear_waiting_states(context)
+            return await start_command(update, context)
+        if text == "/info":
+            clear_waiting_states(context)
+            return await info_command(update, context)
+        if text == "/stop":
+            clear_waiting_states(context)
+            return await stop_command(update, context)
+        await update.message.reply_text(
+            "❌ Неизвестная команда. Используйте /start, /info или /stop",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+        return
+    
+    # Обычные кнопки меню
     if text == "📦 Каталог":
         return await show_categories(update, context)
     if text == "🛒 Корзина":
@@ -1869,7 +1979,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🛑 Стоп":
         return await stop_command(update, context)
 
-    # Если пришло фото вне режима ожидания
     if update.message and update.message.photo:
         await update.message.reply_text(
             "❓ Чтобы добавить фото товара, используйте меню редактирования товара",
@@ -1877,7 +1986,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Если текст не распознан
     if update.message and text:
         await update.message.reply_text(
             "Используйте кнопки меню",
@@ -1902,10 +2010,25 @@ def main():
     
     asyncio.get_event_loop().run_until_complete(cleanup())
     
-    # Команды бота
+    # =========================================================
+    # 1. ПРИОРИТЕТНЫЕ ОБРАБОТЧИКИ
+    # =========================================================
+    
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_input))
+    app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_photo_edit))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_field))
+    
+    # =========================================================
+    # 2. КОМАНДЫ БОТА
+    # =========================================================
+    
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("stop", stop_command))
+    
+    # =========================================================
+    # 3. ДИАЛОГИ
+    # =========================================================
     
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_prompt)],
@@ -1964,6 +2087,10 @@ def main():
         allow_reentry=True,
     ))
     
+    # =========================================================
+    # 4. CALLBACK QUERY HANDLERS
+    # =========================================================
+    
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
     app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
     app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
@@ -1982,6 +2109,10 @@ def main():
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern="^orderdetail\\|"))
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
+    
+    # =========================================================
+    # 5. ОСНОВНОЙ РОУТЕР (САМЫЙ НИЗКИЙ ПРИОРИТЕТ)
+    # =========================================================
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
     app.add_handler(MessageHandler(filters.PHOTO, menu_router))
