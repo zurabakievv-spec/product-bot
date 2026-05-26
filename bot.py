@@ -248,6 +248,25 @@ def get_cancel_keyboard():
     return ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True)
 
 
+def get_product_photo_bytes(product: dict) -> Optional[bytes]:
+    """Получение фото товара в виде байтов"""
+    # Сначала проверяем base64
+    if product.get("photo_base64"):
+        try:
+            return base64.b64decode(product["photo_base64"])
+        except:
+            pass
+    
+    # Если нет base64, проверяем файл (для обратной совместимости)
+    if product.get("photo"):
+        photo_path = os.path.join(PHOTOS_DIR, product["photo"])
+        if os.path.exists(photo_path):
+            with open(photo_path, "rb") as f:
+                return f.read()
+    
+    return None
+
+
 # =========================================================
 # COMMANDS
 # =========================================================
@@ -651,10 +670,14 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        filename = f"product_{product['id']}.jpg"
-        await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
-        product["photo"] = filename
+        # Скачиваем фото в память
+        photo_data = await file.download_as_bytearray()
+        # Конвертируем в base64
+        product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
+        product["photo"] = ""
+        log.info(f"✅ Photo saved as base64 for product #{product['id']}")
     else:
+        product["photo_base64"] = ""
         product["photo"] = ""
     
     products = load_products()
@@ -767,19 +790,19 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{product.get('category', '')}")],
     ]
     
-    photo_path = os.path.join(PHOTOS_DIR, product["photo"]) if product.get("photo") else None
+    # Получаем фото из base64 или файла
+    photo_bytes = get_product_photo_bytes(product)
     
     try:
         await query.message.delete()
         
-        if photo_path and os.path.exists(photo_path):
-            with open(photo_path, "rb") as ph:
-                await query.message.reply_photo(
-                    photo=ph,
-                    caption=full_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(kb),
-                )
+        if photo_bytes:
+            await query.message.reply_photo(
+                photo=photo_bytes,
+                caption=full_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
         else:
             await query.message.reply_text(
                 full_text,
@@ -865,6 +888,9 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = load_products()
     for i, p in enumerate(products):
         if p["id"] == product["id"]:
+            # Сохраняем существующее фото если его нет
+            if not product.get("photo_base64") and p.get("photo_base64"):
+                product["photo_base64"] = p["photo_base64"]
             products[i] = product
             break
     save_products(products)
@@ -940,28 +966,23 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Проверяем фото
     if update.message and update.message.photo:
-        # Удаляем старое фото
-        if product.get("photo"):
-            old_path = os.path.join(PHOTOS_DIR, product["photo"])
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except:
-                    pass
-        
-        # Сохраняем новое
+        # Сохраняем новое фото в base64
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        filename = f"product_{product['id']}.jpg"
-        await file.download_to_drive(os.path.join(PHOTOS_DIR, filename))
-        product["photo"] = filename
+        photo_data = await file.download_as_bytearray()
+        product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
+        product["photo"] = ""
         
         # Обновляем в хранилище
         products = load_products()
+        found = False
         for i, p in enumerate(products):
             if p["id"] == product["id"]:
-                products[i] = product
+                products[i] = product.copy()
+                found = True
                 break
+        if not found:
+            products.append(product)
         save_products(products)
         
         # Очищаем состояние
@@ -977,21 +998,14 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Категория: {sanitize(product.get('category', '—'))}"
         )
         
-        photo_path = os.path.join(PHOTOS_DIR, product["photo"])
-        if os.path.exists(photo_path):
-            with open(photo_path, "rb") as ph:
-                await update.message.reply_photo(
-                    photo=ph,
-                    caption=f"✅ Фото обновлено\n\n{product_text}{admin_info}",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=get_reply_markup(update.effective_user.id),
-                )
-        else:
-            await update.message.reply_text(
-                f"✅ Фото обновлено\n\n{product_text}{admin_info}",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_reply_markup(update.effective_user.id),
-            )
+        # Отправляем фото из base64
+        photo_bytes = base64.b64decode(product["photo_base64"])
+        await update.message.reply_photo(
+            photo=photo_bytes,
+            caption=f"✅ Фото обновлено\n\n{product_text}{admin_info}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
         return True
     
     # Если пришло не фото и не отмена
@@ -1012,6 +1026,7 @@ async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TY
     if not product:
         await query.edit_message_text("❌ Товар не найден")
         return
+    # Удаляем файл фото если есть (для обратной совместимости)
     if product.get("photo"):
         path = os.path.join(PHOTOS_DIR, product["photo"])
         if os.path.exists(path):
@@ -1091,7 +1106,8 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
     
-    photo_path = os.path.join(PHOTOS_DIR, p["photo"]) if p.get("photo") else None
+    # Получаем фото из base64 или файла
+    photo_bytes = get_product_photo_bytes(p)
     
     try:
         if update.callback_query:
@@ -1100,18 +1116,17 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         
-        if photo_path and os.path.exists(photo_path):
-            with open(photo_path, "rb") as ph:
-                if update.callback_query:
-                    await update.callback_query.message.reply_photo(
-                        photo=ph, caption=text, parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(rows),
-                    )
-                else:
-                    await update.message.reply_photo(
-                        photo=ph, caption=text, parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(rows),
-                    )
+        if photo_bytes:
+            if update.callback_query:
+                await update.callback_query.message.reply_photo(
+                    photo=photo_bytes, caption=text, parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(rows),
+                )
+            else:
+                await update.message.reply_photo(
+                    photo=photo_bytes, caption=text, parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(rows),
+                )
         else:
             if update.callback_query:
                 await update.callback_query.message.reply_text(
