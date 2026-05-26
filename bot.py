@@ -492,8 +492,10 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
 async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     if not is_admin(update.effective_user.id):
         return
+    
     cat = query.data.split("|", 1)[1]
     
     if is_hidden_category(cat):
@@ -506,10 +508,18 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
-    await query.edit_message_text(
+    
+    # Отправляем НОВОЕ сообщение с клавиатурой
+    await query.message.reply_text(
         f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
         reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
     )
+    
+    # Удаляем старое сообщение с кнопками
+    try:
+        await query.message.delete()
+    except:
+        pass
 
 
 async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -560,11 +570,13 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return True
     
+    # Переименовываем категорию
     if old_name in cats:
         cats.remove(old_name)
         cats.append(text)
         save_categories(cats)
     
+    # Обновляем категорию у товаров
     products = load_products()
     for p in products:
         if p.get("category") == old_name:
@@ -638,7 +650,6 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(
         f"✅ Категория '{cat}' удалена. Товары перемещены в '{tech_category}'"
     )
-
 
 # =========================================================
 # ADD PRODUCT
