@@ -250,14 +250,12 @@ def get_cancel_keyboard():
 
 def get_product_photo_bytes(product: dict) -> Optional[bytes]:
     """Получение фото товара в виде байтов"""
-    # Сначала проверяем base64
     if product.get("photo_base64"):
         try:
             return base64.b64decode(product["photo_base64"])
         except:
             pass
     
-    # Если нет base64, проверяем файл (для обратной совместимости)
     if product.get("photo"):
         photo_path = os.path.join(PHOTOS_DIR, product["photo"])
         if os.path.exists(photo_path):
@@ -361,7 +359,6 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stop - очистка данных пользователя"""
     user_id = update.effective_user.id
     
-    # Очищаем все данные пользователя
     context.user_data.clear()
     
     await update.message.reply_text(
@@ -437,7 +434,6 @@ async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📂 Категорий пока нет")
         return
     
-    # Для админов показываем все категории, но с пометкой для технической
     kb = []
     for cat in categories:
         if is_hidden_category(cat):
@@ -464,7 +460,6 @@ async def manage_category_action(update: Update, context: ContextTypes.DEFAULT_T
         return
     cat = query.data.split("|", 1)[1]
     
-    # Запрещаем удаление технической категории
     if is_hidden_category(cat):
         kb = [[InlineKeyboardButton("🔙 Назад", callback_data="back_to_categories")]]
         await query.edit_message_text(
@@ -493,7 +488,6 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
         return
     cat = query.data.split("|", 1)[1]
     
-    # Запрещаем переименование технической категории
     if is_hidden_category(cat):
         kb = [[InlineKeyboardButton("🔙 Назад", callback_data=f"managecat|{cat}")]]
         await query.edit_message_text(
@@ -505,7 +499,6 @@ async def rename_category_prompt(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["rename_old_cat"] = cat
     context.user_data["awaiting_rename"] = True
     
-    # Отправляем сообщение с клавиатурой, содержащей кнопку "Отмена"
     await query.edit_message_text(
         f"✏️ Введите новое название для категории '{cat}'\n\nИли нажмите кнопку «Отмена»:",
         reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
@@ -519,7 +512,9 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("awaiting_rename", None)
         context.user_data.pop("rename_old_cat", None)
         return False
+    
     text = update.message.text.strip()
+    
     if text == "Отмена":
         context.user_data.pop("awaiting_rename", None)
         context.user_data.pop("rename_old_cat", None)
@@ -528,31 +523,48 @@ async def handle_rename_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         return True
+    
     old_name = context.user_data.get("rename_old_cat")
     if not old_name:
         context.user_data.pop("awaiting_rename", None)
         return False
+    
     if not text:
-        await update.message.reply_text("❌ Введите название:")
+        await update.message.reply_text(
+            "❌ Введите название:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     if len(text) > 50:
-        await update.message.reply_text("❌ Слишком длинное название (макс. 50 символов)")
+        await update.message.reply_text(
+            "❌ Слишком длинное название (макс. 50 символов)\n\nВведите другое название или нажмите «Отмена»:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     cats = load_categories()
     if text in cats and text != old_name:
-        await update.message.reply_text("❌ Категория с таким названием уже существует")
+        await update.message.reply_text(
+            "❌ Категория с таким названием уже существует\n\nВведите другое название или нажмите «Отмена»:",
+            reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+        )
         return True
+    
     if old_name in cats:
         cats.remove(old_name)
         cats.append(text)
         save_categories(cats)
+    
     products = load_products()
     for p in products:
         if p.get("category") == old_name:
             p["category"] = text
     save_products(products)
+    
     context.user_data.pop("awaiting_rename", None)
     context.user_data.pop("rename_old_cat", None)
+    
     await update.message.reply_text(
         f"✅ Категория '{old_name}' переименована в '{text}'",
         reply_markup=get_reply_markup(update.effective_user.id),
@@ -591,11 +603,9 @@ async def delete_category_confirm(update: Update, context: ContextTypes.DEFAULT_
         cats.remove(cat)
         save_categories(cats)
     
-    # Перемещаем товары в техническую категорию "Без категории"
     products = load_products()
     tech_category = get_tech_category_name()
     
-    # Убеждаемся, что техническая категория существует в списке (для админов)
     if tech_category not in cats:
         all_cats_for_admin = cats + [tech_category]
         save_categories(all_cats_for_admin)
@@ -695,7 +705,6 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
     
-    # Фильтруем техническую категорию для выбора при добавлении товара
     available_categories = [cat for cat in categories if not is_hidden_category(cat)]
     if not available_categories:
         await update.message.reply_text(
@@ -734,9 +743,7 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         photo = update.message.photo[-1]
         file = await photo.get_file()
-        # Скачиваем фото в память
         photo_data = await file.download_as_bytearray()
-        # Конвертируем в base64
         product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
         product["photo"] = ""
         log.info(f"✅ Photo saved as base64 for product #{product['id']}")
@@ -769,7 +776,6 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("📂 Сначала создайте категории")
         return
     
-    # Для админов показываем все категории
     kb = []
     for cat in categories:
         if is_hidden_category(cat):
@@ -860,7 +866,6 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{product.get('category', '')}")],
     ]
     
-    # Получаем фото из base64 или файла
     photo_bytes = get_product_photo_bytes(product)
     
     try:
@@ -899,7 +904,6 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
         await query.message.reply_text(text, reply_markup=kb)
     elif field == "category":
         categories = load_categories()
-        # Фильтруем техническую категорию для выбора при редактировании
         available_categories = [cat for cat in categories if not is_hidden_category(cat)]
         kb = [[InlineKeyboardButton(cat, callback_data=f"setcat|{cat}")] for cat in available_categories]
         kb.append([InlineKeyboardButton("🔙 Назад", callback_data=f"editprod|{context.user_data['edit_product']['id']}")])
@@ -960,7 +964,6 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = load_products()
     for i, p in enumerate(products):
         if p["id"] == product["id"]:
-            # Сохраняем существующее фото если его нет
             if not product.get("photo_base64") and p.get("photo_base64"):
                 product["photo_base64"] = p["photo_base64"]
             products[i] = product
@@ -1026,7 +1029,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("awaiting_photo", None)
         return False
     
-    # Проверяем Отмену
     if update.message and update.message.text and update.message.text == "Отмена":
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
@@ -1036,16 +1038,13 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return True
     
-    # Проверяем фото
     if update.message and update.message.photo:
-        # Сохраняем новое фото в base64
         photo = update.message.photo[-1]
         file = await photo.get_file()
         photo_data = await file.download_as_bytearray()
         product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
         product["photo"] = ""
         
-        # Обновляем в хранилище
         products = load_products()
         found = False
         for i, p in enumerate(products):
@@ -1057,12 +1056,10 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             products.append(product)
         save_products(products)
         
-        # Очищаем состояние
         context.user_data.pop("awaiting_photo", None)
         context.user_data.pop("edit_field", None)
         context.user_data.pop("edit_product", None)
         
-        # Показываем результат
         product_text = format_product(product)
         admin_info = (
             f"\n\n📋 <b>Информация:</b>\n"
@@ -1070,7 +1067,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Категория: {sanitize(product.get('category', '—'))}"
         )
         
-        # Отправляем фото из base64
         photo_bytes = base64.b64decode(product["photo_base64"])
         await update.message.reply_photo(
             photo=photo_bytes,
@@ -1080,7 +1076,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return True
     
-    # Если пришло не фото и не отмена
     await update.message.reply_text(
         "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
         reply_markup=get_cancel_keyboard(),
@@ -1098,7 +1093,6 @@ async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TY
     if not product:
         await query.edit_message_text("❌ Товар не найден")
         return
-    # Удаляем файл фото если есть (для обратной совместимости)
     if product.get("photo"):
         path = os.path.join(PHOTOS_DIR, product["photo"])
         if os.path.exists(path):
@@ -1122,7 +1116,6 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📂 Категорий пока нет")
         return
     
-    # Для покупателей скрываем техническую категорию
     if not is_admin(update.effective_user.id):
         categories = [cat for cat in categories if not is_hidden_category(cat)]
     
@@ -1187,7 +1180,6 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
     
-    # Получаем фото из base64 или файла
     photo_bytes = get_product_photo_bytes(p)
     
     try:
@@ -1663,7 +1655,6 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     save_products(products)
     
-    # Отправка в группу
     group_id = os.getenv("GROUP_CHAT_ID")
     
     if group_id:
@@ -1719,12 +1710,9 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 Заказов пока нет")
         return
     
-    # Сортируем заказы по убыванию ID (новые сверху)
     orders_sorted = sorted(orders, key=lambda x: x['id'], reverse=True)
     
-    # Инициализируем номер страницы (0 - первая страница с самыми новыми)
     if hasattr(update, "callback_query") and update.callback_query:
-        # Если это callback, берем страницу из data или из контекста
         if "|" in update.callback_query.data and update.callback_query.data.startswith("orders_page|"):
             page = int(update.callback_query.data.split("|")[1])
         else:
@@ -1732,16 +1720,14 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         page = context.user_data.get("orders_page", 0)
     
-    total_pages = (len(orders_sorted) + 9) // 10  # округление вверх
+    total_pages = (len(orders_sorted) + 9) // 10
     start_idx = page * 10
     end_idx = min(start_idx + 10, len(orders_sorted))
     current_orders = orders_sorted[start_idx:end_idx]
     
-    # Сохраняем текущую страницу
     context.user_data["orders_page"] = page
     context.user_data["orders_total_pages"] = total_pages
     
-    # Создаем кнопки для заказов на текущей странице
     kb = []
     for o in current_orders:
         try:
@@ -1757,7 +1743,6 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         ])
     
-    # Добавляем кнопки пагинации (только активные)
     nav_buttons = []
     
     if page > 0:
@@ -1769,15 +1754,12 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         kb.append(nav_buttons)
     
-    # Информация о странице
     page_info = f"\n📄 Страница {page + 1} из {total_pages} | Всего заказов: {len(orders_sorted)}"
     
-    # Текст сообщения
     message_text = f"📋 <b>История заказов:</b>{page_info}\n\n"
     if not current_orders:
         message_text += "❌ Заказов не найдено"
     
-    # Отправляем сообщение
     if hasattr(update, "callback_query") and update.callback_query:
         await update.callback_query.edit_message_text(
             message_text,
@@ -1793,18 +1775,15 @@ async def show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def orders_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопок пагинации заказов"""
     query = update.callback_query
     await query.answer()
     
     if not is_admin(update.effective_user.id):
         return
     
-    # Получаем номер страницы из callback_data
     page = int(query.data.split("|")[1])
     context.user_data["orders_page"] = page
     
-    # Переиспользуем функцию show_orders для отображения
     await show_orders(update, context)
 
 
@@ -1897,36 +1876,14 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# MENU
+# MENU ROUTER
 # =========================================================
 
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Самая первая проверка — режим ожидания фото
-    if context.user_data.get("awaiting_photo"):
-        if update.message and (update.message.photo or (update.message.text and update.message.text == "Отмена")):
-            result = await handle_photo_edit(update, context)
-            if result:
-                return
-        elif update.message and update.message.text:
-            await update.message.reply_text(
-                "❌ Пожалуйста, отправьте фото или нажмите «Отмена»",
-                reply_markup=get_cancel_keyboard(),
-            )
+    # Если мы в режиме ожидания - не обрабатываем здесь
+    if context.user_data.get("awaiting_rename") or context.user_data.get("awaiting_photo") or context.user_data.get("edit_field"):
         return
-
-    # 2. Режим переименования
-    if context.user_data.get("awaiting_rename"):
-        result = await handle_rename_input(update, context)
-        if result:
-            return
-
-    # 3. Режим редактирования поля товара
-    if context.user_data.get("edit_field"):
-        result = await handle_edit_field(update, context)
-        if result:
-            return
-
-    # 4. Обычные кнопки меню
+    
     text = update.message.text if update.message else None
     
     if text == "📦 Каталог":
@@ -1950,7 +1907,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🛑 Стоп":
         return await stop_command(update, context)
 
-    # Если пришло фото вне режима ожидания
     if update.message and update.message.photo:
         await update.message.reply_text(
             "❓ Чтобы добавить фото товара, используйте меню редактирования товара",
@@ -1958,7 +1914,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Если текст не распознан
     if update.message and text:
         await update.message.reply_text(
             "Используйте кнопки меню",
@@ -1983,10 +1938,51 @@ def main():
     
     asyncio.get_event_loop().run_until_complete(cleanup())
     
-    # Команды бота
+    # =========================================================
+    # КОМАНДЫ БОТА
+    # =========================================================
+    
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("stop", stop_command))
+    
+    # =========================================================
+    # ПРИОРИТЕТНЫЕ ОБРАБОТЧИКИ (group=0 - САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ)
+    # =========================================================
+    
+    async def rename_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if context.user_data.get("awaiting_rename"):
+            return await handle_rename_input(update, context)
+        return False
+    
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND, 
+        rename_input_wrapper
+    ), group=0)
+    
+    async def photo_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if context.user_data.get("awaiting_photo"):
+            return await handle_photo_edit(update, context)
+        return False
+    
+    app.add_handler(MessageHandler(
+        filters.PHOTO | (filters.TEXT & ~filters.COMMAND),
+        photo_input_wrapper
+    ), group=0)
+    
+    async def edit_field_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if context.user_data.get("edit_field"):
+            return await handle_edit_field(update, context)
+        return False
+    
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        edit_field_wrapper
+    ), group=0)
+    
+    # =========================================================
+    # ДИАЛОГИ (ConversationHandler)
+    # =========================================================
     
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_prompt)],
@@ -2045,6 +2041,10 @@ def main():
         allow_reentry=True,
     ))
     
+    # =========================================================
+    # CALLBACK QUERY HANDLERS
+    # =========================================================
+    
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
     app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
     app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
@@ -2064,8 +2064,12 @@ def main():
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
-    app.add_handler(MessageHandler(filters.PHOTO, menu_router))
+    # =========================================================
+    # ОСНОВНОЙ РОУТЕР (group=1 - НИЗКИЙ ПРИОРИТЕТ)
+    # =========================================================
+    
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router), group=1)
+    app.add_handler(MessageHandler(filters.PHOTO, menu_router), group=1)
     
     log.info("BOT STARTED")
     app.run_polling(drop_pending_updates=True)
