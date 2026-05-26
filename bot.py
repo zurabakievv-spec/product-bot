@@ -1906,10 +1906,17 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ADMINS
 # =========================================================
 
+# =========================================================
+# ADMINS
+# =========================================================
+
 async def add_admin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_waiting_states(context)
+    
     await update.message.reply_text(
-        "Введите Telegram ID:",
+        "👤 Введите Telegram ID пользователя.\n\n"
+        "❓ Не знаете ID? Узнайте у @userinfobot\n\n"
+        "Или нажмите «Отмена»:",
         reply_markup=get_cancel_keyboard(),
     )
     return ADD_ADMIN_ID
@@ -1922,16 +1929,24 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         uid = int(text)
     except:
-        await update.message.reply_text("❌ ID должен быть числом")
+        await update.message.reply_text(
+            "❌ ID должен быть числом.\n\nПопробуйте снова или нажмите «Отмена»:",
+            reply_markup=get_cancel_keyboard(),
+        )
         return ADD_ADMIN_ID
     admins = load_admins()
     if uid not in admins:
         admins.append(uid)
         save_admins(admins)
-    await update.message.reply_text(
-        "✅ Менеджер добавлен",
-        reply_markup=get_reply_markup(update.effective_user.id),
-    )
+        await update.message.reply_text(
+            f"✅ Менеджер с ID {uid} добавлен!",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
+    else:
+        await update.message.reply_text(
+            f"⚠️ Менеджер с ID {uid} уже существует.",
+            reply_markup=get_reply_markup(update.effective_user.id),
+        )
     return ConversationHandler.END
 
 
