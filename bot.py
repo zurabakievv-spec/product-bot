@@ -16,6 +16,7 @@ from telegram import (
     KeyboardButton,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InputMediaPhoto,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -989,17 +990,13 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = get_product_photo_bytes(product)
     
     try:
-        await query.message.delete()
-        
         if photo_bytes:
-            await query.message.reply_photo(
-                photo=photo_bytes,
-                caption=full_text,
-                parse_mode=ParseMode.HTML,
+            await query.edit_message_media(
+                media=InputMediaPhoto(media=photo_bytes, caption=full_text, parse_mode=ParseMode.HTML),
                 reply_markup=InlineKeyboardMarkup(kb),
             )
         else:
-            await query.message.reply_text(
+            await query.edit_message_text(
                 full_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(kb),
@@ -1396,16 +1393,10 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("cat_products", None)
         context.user_data.pop("current_index", None)
         
-        # Удаляем сообщение с карточкой товара
-        try:
-            await query.message.delete()
-        except:
-            pass
-        
-        # Показываем категории заново
+        # Показываем категории (редактируем текущее сообщение)
         categories = load_categories()
         if not categories:
-            await query.message.reply_text("📂 Категорий пока нет")
+            await query.edit_message_text("📂 Категорий пока нет")
             return
         
         # Для покупателей скрываем техническую категорию
@@ -1413,11 +1404,11 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
             categories = [cat for cat in categories if not is_hidden_category(cat)]
         
         if not categories:
-            await query.message.reply_text("📂 Категорий пока нет")
+            await query.edit_message_text("📂 Категорий пока нет")
             return
         
         kb = [[InlineKeyboardButton(cat, callback_data=f"showcat|{cat}")] for cat in categories]
-        await query.message.reply_text(
+        await query.edit_message_text(
             "📂 Выберите категорию:",
             reply_markup=InlineKeyboardMarkup(kb),
         )
