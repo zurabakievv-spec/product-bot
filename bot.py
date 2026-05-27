@@ -1387,11 +1387,35 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await show_product_card(update, context)
     
     if action == "back_to_cats":
+        # Очищаем данные о текущем товаре
+        context.user_data.pop("cat_products", None)
+        context.user_data.pop("current_index", None)
+        
+        # Удаляем сообщение с карточкой товара
         try:
             await query.message.delete()
         except:
             pass
-        await show_categories(update, context)
+        
+        # Показываем категории заново
+        categories = load_categories()
+        if not categories:
+            await query.message.reply_text("📂 Категорий пока нет")
+            return
+        
+        # Для покупателей скрываем техническую категорию
+        if not is_admin(update.effective_user.id):
+            categories = [cat for cat in categories if not is_hidden_category(cat)]
+        
+        if not categories:
+            await query.message.reply_text("📂 Категорий пока нет")
+            return
+        
+        kb = [[InlineKeyboardButton(cat, callback_data=f"showcat|{cat}")] for cat in categories]
+        await query.message.reply_text(
+            "📂 Выберите категорию:",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
         return
     
     if action.startswith("addcart|"):
