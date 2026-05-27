@@ -986,7 +986,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📂 Изменить категорию", callback_data="editfield|category")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="editfield|photo")],
         [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
-        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{current_category}")],
+        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"back_to_products|{current_category}")],
     ]
     
     photo_bytes = get_product_photo_bytes(product)
@@ -1007,6 +1007,47 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error("Failed to show edit product menu: %s", e)
 
 
+async def back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    cat = query.data.split("|", 1)[1]
+    
+    products = [p for p in load_products() if p["category"] == cat]
+    
+    if not products:
+        await query.edit_message_text(
+            f"📦 В категории '{cat}' нет товаров",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")
+            ]])
+        )
+        return
+    
+    kb = []
+    for p in products:
+        stock = int(p.get("stock", 0))
+        status = "🟢" if stock > 0 else "🔴"
+        kb.append([
+            InlineKeyboardButton(
+                f"{status} {sanitize(p['name'], 30)} | {p['price']:,.0f}₽ | ост: {stock}",
+                callback_data=f"editprod|{p['id']}"
+            )
+        ])
+    kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
+    
+    await query.edit_message_text(
+        f"📦 Товары в категории '{cat}':",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+
+
 async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
@@ -1018,7 +1059,7 @@ async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAUL
     if field in ["name", "description", "price", "stock"]:
         prompts = {
             "name": ("📝 Введите новое название:", get_cancel_keyboard()),
-            "description": ("📝 Введите новое описание или «Пропустить»:", ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True)),
+            "description": ("📝 Введите новое описание (можно оставить пустым):\n\nИли нажмите «Отмена»:", get_cancel_keyboard()),
             "price": ("💰 Введите новую цену:", get_cancel_keyboard()),
             "stock": ("📦 Введите новый остаток:", get_cancel_keyboard()),
         }
@@ -1065,15 +1106,12 @@ async def handle_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
         product["name"] = text
     elif field == "description":
-        if text == "Пропустить":
-            text = ""
-        
         if len(text) > 1500:
             await update.message.reply_text(
                 f"❌ Описание слишком длинное (макс. 1500 символов).\n"
                 f"Сейчас: {len(text)} символов.\n\n"
                 f"Пожалуйста, сократите описание или нажмите «Отмена»:",
-                reply_markup=ReplyKeyboardMarkup([["Отмена"]], resize_keyboard=True),
+                reply_markup=get_cancel_keyboard(),
             )
             return True
         
@@ -1457,10 +1495,9 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         product = get_product(item["id"])
         
         if not product:
-            warnings.append(f"❌ {sanitize(item.get('name', 'Товар'), 50)}: товар больше не продаётся")
+            warnings.append(f"❌ Товар больше не продаётся")
             has_unavailable = True
-            lines.append(f"❌ <s>{sanitize(item.get('name', 'Товар'), 50)}</s> × {item['quantity']} - ТОВАР УДАЛЁН")
-            updated_cart.append(item)
+            lines.append(f"❌ <s>Товар</s> × {item['quantity']} - ТОВАР УДАЛЁН")
             continue
         
         current_price = product["price"]
@@ -1708,7 +1745,7 @@ async def remove_cart_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cart = context.user_data.get("cart", [])
     
     if idx < len(cart):
-        removed = cart.pop(idx)
+        cart.pop(idx)
         context.user_data["cart"] = cart
         await query.edit_message_text(f"🗑 Товар удалён из корзины")
     else:
@@ -1869,10 +1906,17 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = ""
     cart = context.user_data.get("cart", [])
     total = 0
+    items_copy = []
     for item in cart:
         product = get_product(item["id"])
         if product:
             total += product["price"] * item["quantity"]
+            items_copy.append({
+                "id": item["id"],
+                "name": product["name"],
+                "price": product["price"],
+                "quantity": item["quantity"],
+            })
     
     orders = load_orders()
     order = {
@@ -1881,21 +1925,10 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "client_name": context.user_data["client_name"],
         "phone": context.user_data["phone"],
         "comment": text,
-        "items": [],
+        "items": items_copy,
         "total": total,
         "created_at": datetime.now(MOSCOW_TZ).isoformat(timespec="seconds"),
     }
-    
-    # Сохраняем копию товаров на момент заказа
-    for item in cart:
-        product = get_product(item["id"])
-        if product:
-            order["items"].append({
-                "id": item["id"],
-                "name": product["name"],
-                "price": product["price"],
-                "quantity": item["quantity"],
-            })
     
     orders.append(order)
     save_orders(orders)
@@ -1922,7 +1955,7 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if order['comment']:
                 msg += f"\n💬 Комментарий: {sanitize(order['comment'], 200)}"
             msg += "\n\n📋 <b>Состав заказа:</b>"
-            for item in order['items']:
+            for item in items_copy:
                 item_total = item['price'] * item['quantity']
                 msg += f"\n— {sanitize(item['name'], 50)} × {item['quantity']} = {item_total:,.0f}₽"
             msg += f"\n\n💰 <b>Итого: {total:,.0f}₽</b>"
@@ -2487,6 +2520,7 @@ def main():
     app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
     app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
     app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
+    app.add_handler(CallbackQueryHandler(back_to_products, pattern="^back_to_products\\|"))
     app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
     app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
     app.add_handler(CallbackQueryHandler(delete_product_inline, pattern="^deleteprod\\|"))
