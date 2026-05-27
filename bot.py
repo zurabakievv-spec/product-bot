@@ -2211,7 +2211,6 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_reply_markup(user_id),
     )
 
-
 # =========================================================
 # ORDERS (ADMIN)
 # =========================================================
@@ -2610,7 +2609,6 @@ def main():
     app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
     app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
     app.add_handler(CallbackQueryHandler(my_order_detail, pattern="^myorder\\|"))
-    app.add_handler(CallbackQueryHandler(back_to_my_orders, pattern="^my_orders_back$"))
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern=r"^deleteprod\|"))
