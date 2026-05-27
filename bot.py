@@ -970,6 +970,11 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     full_text = product_text + admin_info
     
+    # Получаем название категории для кнопки возврата
+    current_category = product.get('category', '')
+    if not current_category:
+        current_category = get_tech_category_name()
+    
     kb = [
         [InlineKeyboardButton("✏️ Изменить название", callback_data="editfield|name")],
         [InlineKeyboardButton("📝 Изменить описание", callback_data="editfield|description")],
@@ -978,7 +983,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📂 Изменить категорию", callback_data="editfield|category")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="editfield|photo")],
         [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
-        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{product.get('category', '')}")],
+        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{current_category}")],
     ]
     
     photo_bytes = get_product_photo_bytes(product)
