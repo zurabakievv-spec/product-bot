@@ -2116,7 +2116,6 @@ async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Заказ #{o['id']} от {date_short}",
             callback_data=f"myorder|{o['id']}"
         )])
-    kb.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")])
     
     await update.message.reply_text(
         text,
@@ -2605,15 +2604,13 @@ def main():
     app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
     app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
     app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
-    app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern="^deleteprod\\|"))
-    app.add_handler(CallbackQueryHandler(confirm_delete_product, pattern="^confirm_delete\\|"))
-    app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern="^cancel_delete\\|"))
     app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
     app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|nav_none|back_to_cats)$"))
     app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
     app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
-    app.add_handler(CallbackQueryHandler(show_order_detail, pattern="^orderdetail\\|"))
+    app.add_handler(CallbackQueryHandler(my_order_detail, pattern="^myorder\\|"))
+    app.add_handler(CallbackQueryHandler(back_to_my_orders, pattern="^my_orders_back$"))
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
     app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern=r"^deleteprod\|"))
