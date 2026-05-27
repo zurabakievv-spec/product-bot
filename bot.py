@@ -986,7 +986,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📂 Изменить категорию", callback_data="editfield|category")],
         [InlineKeyboardButton("📸 Изменить фото", callback_data="editfield|photo")],
         [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
-        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"back_to_products|{current_category}")],
+        [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{current_category}")],
     ]
     
     photo_bytes = get_product_photo_bytes(product)
@@ -1007,7 +1007,7 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error("Failed to show edit product menu: %s", e)
 
 
-async def back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
     
@@ -1017,35 +1017,76 @@ async def back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     
-    cat = query.data.split("|", 1)[1]
+    pid = int(query.data.split("|")[1])
+    product = get_product(pid)
     
-    products = [p for p in load_products() if p["category"] == cat]
-    
-    if not products:
-        await query.edit_message_text(
-            f"📦 В категории '{cat}' нет товаров",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")
-            ]])
-        )
+    if not product:
+        await query.edit_message_text("❌ Товар не найден")
         return
     
-    kb = []
-    for p in products:
-        stock = int(p.get("stock", 0))
-        status = "🟢" if stock > 0 else "🔴"
-        kb.append([
-            InlineKeyboardButton(
-                f"{status} {sanitize(p['name'], 30)} | {p['price']:,.0f}₽ | ост: {stock}",
-                callback_data=f"editprod|{p['id']}"
-            )
-        ])
-    kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
+    context.user_data["delete_product_id"] = pid
+    
+    kb = [
+        [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_delete|{pid}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_delete|{pid}")],
+    ]
     
     await query.edit_message_text(
-        f"📦 Товары в категории '{cat}':",
+        f"🗑 Вы уверены, что хотите удалить товар «{sanitize(product['name'], 50)}»?\n\nЭто действие нельзя отменить.",
         reply_markup=InlineKeyboardMarkup(kb),
     )
+
+
+async def confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    pid = int(query.data.split("|")[1])
+    product = get_product(pid)
+    
+    if not product:
+        await query.edit_message_text("❌ Товар не найден")
+        return
+    
+    if product.get("photo"):
+        path = os.path.join(PHOTOS_DIR, product["photo"])
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except:
+                pass
+    
+    products = load_products()
+    products = [p for p in products if p["id"] != pid]
+    save_products(products)
+    
+    context.user_data.pop("delete_product_id", None)
+    
+    await query.edit_message_text(f"✅ Товар «{product['name']}» удалён")
+
+
+async def cancel_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(update.effective_user.id):
+        return
+    
+    pid = int(query.data.split("|")[1])
+    product = get_product(pid)
+    
+    context.user_data.pop("delete_product_id", None)
+    
+    await query.edit_message_text(f"❌ Удаление товара «{product['name']}» отменено")
 
 
 async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1263,32 +1304,6 @@ async def handle_photo_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_cancel_keyboard(),
     )
     return True
-
-
-async def delete_product_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_private_chat(update):
-        return
-    
-    query = update.callback_query
-    await query.answer()
-    if not is_admin(update.effective_user.id):
-        return
-    pid = int(query.data.split("|")[1])
-    product = get_product(pid)
-    if not product:
-        await query.edit_message_text("❌ Товар не найден")
-        return
-    if product.get("photo"):
-        path = os.path.join(PHOTOS_DIR, product["photo"])
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except:
-                pass
-    products = load_products()
-    products = [p for p in products if p["id"] != pid]
-    save_products(products)
-    await query.edit_message_text(f"✅ Товар '{product['name']}' удалён")
 
 
 # =========================================================
@@ -2520,10 +2535,11 @@ def main():
     app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
     app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
     app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
-    app.add_handler(CallbackQueryHandler(back_to_products, pattern="^back_to_products\\|"))
+    app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern="^deleteprod\\|"))
+    app.add_handler(CallbackQueryHandler(confirm_delete_product, pattern="^confirm_delete\\|"))
+    app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern="^cancel_delete\\|"))
     app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
     app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
-    app.add_handler(CallbackQueryHandler(delete_product_inline, pattern="^deleteprod\\|"))
     app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|nav_none|back_to_cats)$"))
     app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
     app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
