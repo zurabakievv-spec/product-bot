@@ -903,6 +903,39 @@ async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
     return ADD_PRODUCT_PHOTO
 
 
+async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
+        return ConversationHandler.END
+    
+    product = context.user_data.get("new_product")
+    if not product:
+        return ConversationHandler.END
+    
+    product["id"] = next_product_id()
+    
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        photo_data = await file.download_as_bytearray()
+        product["photo_base64"] = base64.b64encode(photo_data).decode('utf-8')
+        product["photo"] = ""
+        log.info(f"✅ Photo saved as base64 for product #{product['id']}")
+    else:
+        product["photo_base64"] = ""
+        product["photo"] = ""
+    
+    products = load_products()
+    products.append(product)
+    save_products(products)
+    
+    await update.message.reply_text(
+        f"✅ Товар '{product['name']}' добавлен (ID: {product['id']})",
+        reply_markup=get_reply_markup(update.effective_user.id),
+    )
+    context.user_data.pop("new_product", None)
+    return ConversationHandler.END
+
+
 async def save_new_category_and_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return ConversationHandler.END
