@@ -1549,7 +1549,7 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Или нажмите «Отмена»:",
             reply_markup=get_cancel_keyboard(),
         )
-        return ADD_TO_CART_QTYа ч
+        return ADD_TO_CART_QTY
 
 
 # =========================================================
@@ -2616,6 +2616,9 @@ def main():
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern="^orderdetail\\|"))
     app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
     app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
+    app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern=r"^deleteprod\|"))
+    app.add_handler(CallbackQueryHandler(confirm_delete_product, pattern=r"^confirm_delete\|"))
+    app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern=r"^cancel_delete\|"))
     
     # Мои заказы (покупатель)
     app.add_handler(CallbackQueryHandler(my_order_detail, pattern="^myorder\\|"))
