@@ -2604,36 +2604,35 @@ def main():
         allow_reentry=True,
     ))
     
-   # Callback handlers
-app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
-app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
-app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
-app.add_handler(CallbackQueryHandler(rename_category_prompt, pattern="^renamecat\\|"))
-app.add_handler(CallbackQueryHandler(delete_category_prompt, pattern="^deletecat\\|"))
-app.add_handler(CallbackQueryHandler(delete_category_confirm, pattern="^confirmdel\\|"))
-app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
-app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
-app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
-app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
-app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
-app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|nav_none|back_to_cats)$"))
-app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
-app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
-app.add_handler(CallbackQueryHandler(cart_actions, pattern="^(checkout|clear_cart|edit_cart|back_to_cart)$"))  # ДОБАВИТЬ!
-app.add_handler(CallbackQueryHandler(change_cart_qty_prompt, pattern="^changeqty\\|"))  # ДОБАВИТЬ!
-app.add_handler(CallbackQueryHandler(my_order_detail, pattern="^myorder\\|"))  # ОДИН РАЗ!
-app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
-app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
-app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern=r"^deleteprod\|"))
-app.add_handler(CallbackQueryHandler(confirm_delete_product, pattern=r"^confirm_delete\|"))
-app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern=r"^cancel_delete\|"))
-app.add_handler(CallbackQueryHandler(back_to_my_orders, pattern="^my_orders_back$"))
-app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
-app.add_handler(CallbackQueryHandler(view_cart, pattern="^back_to_cart$"))  # ДОБАВИТЬ (если не обрабатывается в cart_actions)
-
-# Основной роутер
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
-app.add_handler(MessageHandler(filters.PHOTO, menu_router))
+    # Callback handlers
+    app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
+    app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
+    app.add_handler(CallbackQueryHandler(manage_category_action, pattern="^managecat\\|"))
+    app.add_handler(CallbackQueryHandler(rename_category_prompt, pattern="^renamecat\\|"))
+    app.add_handler(CallbackQueryHandler(delete_category_prompt, pattern="^deletecat\\|"))
+    app.add_handler(CallbackQueryHandler(delete_category_confirm, pattern="^confirmdel\\|"))
+    app.add_handler(CallbackQueryHandler(manage_categories, pattern="^back_to_categories$"))
+    app.add_handler(CallbackQueryHandler(list_products_admin, pattern="^back_to_admin_cats$"))
+    app.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^editprod\\|"))
+    app.add_handler(CallbackQueryHandler(edit_product_field_prompt, pattern="^editfield\\|"))
+    app.add_handler(CallbackQueryHandler(set_product_category, pattern="^setcat\\|"))
+    app.add_handler(CallbackQueryHandler(nav_product, pattern="^(nav_prev|nav_next|nav_none|back_to_cats)$"))
+    app.add_handler(CallbackQueryHandler(edit_cart_item_menu, pattern="^editcartitem\\|"))
+    app.add_handler(CallbackQueryHandler(remove_cart_item, pattern="^removecart\\|"))
+    app.add_handler(CallbackQueryHandler(cart_actions, pattern="^(checkout|clear_cart|edit_cart|back_to_cart)$"))
+    app.add_handler(CallbackQueryHandler(change_cart_qty_prompt, pattern="^changeqty\\|"))
+    app.add_handler(CallbackQueryHandler(my_order_detail, pattern="^myorder\\|"))
+    app.add_handler(CallbackQueryHandler(show_orders, pattern="^back_to_orders$"))
+    app.add_handler(CallbackQueryHandler(orders_pagination, pattern="^orders_page\\|"))
+    app.add_handler(CallbackQueryHandler(delete_product_prompt, pattern=r"^deleteprod\|"))
+    app.add_handler(CallbackQueryHandler(confirm_delete_product, pattern=r"^confirm_delete\|"))
+    app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern=r"^cancel_delete\|"))
+    app.add_handler(CallbackQueryHandler(back_to_my_orders, pattern="^my_orders_back$"))
+    app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
+    
+    # Основной роутер
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
+    app.add_handler(MessageHandler(filters.PHOTO, menu_router))
     
     log.info("BOT STARTED")
     app.run_polling(drop_pending_updates=True)
