@@ -921,8 +921,14 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
     cat = query.data.split("|", 1)[1]
     products = [p for p in load_products() if p["category"] == cat]
     
+    # Удаляем сообщение с карточкой товара
+    try:
+        await query.message.delete()
+    except:
+        pass
+    
     if not products:
-        await query.edit_message_text(
+        await query.message.reply_text(
             f"📦 В категории '{cat}' нет товаров",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")
@@ -942,7 +948,7 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
         ])
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
     
-    await query.edit_message_text(
+    await query.message.reply_text(
         f"📦 Товары в категории '{cat}':",
         reply_markup=InlineKeyboardMarkup(kb),
     )
@@ -992,13 +998,17 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = get_product_photo_bytes(product)
     
     try:
+        await query.message.delete()
+        
         if photo_bytes:
-            await query.edit_message_media(
-                media=InputMediaPhoto(media=photo_bytes, caption=full_text, parse_mode=ParseMode.HTML),
+            await query.message.reply_photo(
+                photo=photo_bytes,
+                caption=full_text,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(kb),
             )
         else:
-            await query.edit_message_text(
+            await query.message.reply_text(
                 full_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(kb),
