@@ -2190,55 +2190,25 @@ async def my_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def back_to_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-
+    
     query = update.callback_query
     await query.answer()
+    
+    await my_orders(update, context)
 
-    user_id = update.effective_user.id
 
-    orders = load_orders()
-    user_orders = [o for o in orders if o.get("user_id") == user_id]
-
-    if not user_orders:
-        await query.edit_message_text("📋 У вас пока нет заказов.")
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_private_chat(update):
         return
-
-    user_orders_sorted = sorted(
-        user_orders,
-        key=lambda x: x['id'],
-        reverse=True
-    )
-
-    recent_orders = user_orders_sorted[:5]
-
-    text = "📋 <b>Ваши последние заказы:</b>\n\n"
-
-    kb = []
-
-    for o in recent_orders:
-        try:
-            order_date = datetime.fromisoformat(o['created_at'])
-            date_str = order_date.strftime("%d.%m.%Y")
-        except:
-            date_str = "неизвестно"
-
-        text += (
-            f"📦 <b>Заказ #{o['id']}</b>\n"
-            f"💰 {o['total']:,.0f}₽\n"
-            f"📅 {date_str}\n\n"
-        )
-
-        kb.append([
-            InlineKeyboardButton(
-                f"📦 Заказ #{o['id']}",
-                callback_data=f"myorder|{o['id']}"
-            )
-        ])
-
+    
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
     await query.edit_message_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(kb),
+        "👋 Вы вернулись в главное меню.",
+        reply_markup=get_reply_markup(user_id),
     )
 
 
