@@ -1018,109 +1018,67 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("=" * 50)
-    print("DELETE PRODUCT PROMPT START")
-    
     if not is_private_chat(update):
-        print("Not private chat - EXIT")
         return
-    
-    print("Private chat - OK")
-    
     query = update.callback_query
-    print(f"Callback data: {query.data}")
-    
     await query.answer()
-    print("Query answered")
-    
+
     if not is_admin(update.effective_user.id):
-        print("Not admin - EXIT")
         return
-    
-    print("Is admin - OK")
-    
-    try:
-        pid = int(query.data.split("|")[1])
-        print(f"Product ID: {pid}")
-    except Exception as e:
-        print(f"Error parsing product ID: {e}")
-        return
-    
+
+    pid = int(query.data.split("|")[1])
     product = get_product(pid)
-    print(f"Product found: {product is not None}")
-    
     if not product:
-        print("Product not found - EXIT")
         await query.edit_message_text("❌ Товар не найден")
         return
-    
-    context.user_data["delete_product_id"] = pid
-    print(f"delete_product_id set to {pid}")
-    
+
     kb = [
         [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_delete|{pid}")],
-        [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_delete|{pid}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_delete|{pid}")]
     ]
-    
-    print("Sending confirmation message...")
+
     await query.edit_message_text(
         f"🗑 Вы уверены, что хотите удалить товар «{sanitize(product['name'], 50)}»?\n\nЭто действие нельзя отменить.",
         reply_markup=InlineKeyboardMarkup(kb),
     )
-    print("DELETE PRODUCT PROMPT END")
-    print("=" * 50)
 
 
 async def confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
     query = update.callback_query
     await query.answer()
-    
+
     if not is_admin(update.effective_user.id):
         return
-    
+
     pid = int(query.data.split("|")[1])
     product = get_product(pid)
-    
     if not product:
         await query.edit_message_text("❌ Товар не найден")
         return
-    
-    if product.get("photo"):
-        path = os.path.join(PHOTOS_DIR, product["photo"])
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except:
-                pass
-    
+
     products = load_products()
     products = [p for p in products if p["id"] != pid]
     save_products(products)
-    
-    context.user_data.pop("delete_product_id", None)
-    
-    await query.edit_message_text(f"✅ Товар «{product['name']}» удалён")
+
+    await query.edit_message_text(f"✅ Товар «{sanitize(product['name'], 50)}» удалён")
 
 
 async def cancel_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
     query = update.callback_query
     await query.answer()
-    
+
     if not is_admin(update.effective_user.id):
         return
-    
+
     pid = int(query.data.split("|")[1])
     product = get_product(pid)
-    
-    context.user_data.pop("delete_product_id", None)
-    
-    await query.edit_message_text(f"❌ Удаление товара «{product['name']}» отменено")
+    name = product["name"] if product else f"#{pid}"
+
+    await query.edit_message_text(f"❌ Удаление товара «{sanitize(name, 50)}» отменено")
 
 
 async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
