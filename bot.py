@@ -267,6 +267,52 @@ def get_product_photo_bytes(product: dict) -> Optional[bytes]:
     return None
 
 
+async def safe_edit_query_message(query, text, kb=None, parse_mode=None, photo_bytes=None):
+    markup = InlineKeyboardMarkup(kb) if kb else None
+    try:
+        if query.message.photo or query.message.caption:
+            if photo_bytes is None and query.message.photo:
+                photo_bytes = await query.message.photo[-1].get_file()
+                photo_bytes = await photo_bytes.download_as_bytearray()
+            if query.message.photo:
+                await query.edit_message_caption(
+                    caption=text,
+                    reply_markup=markup,
+                    parse_mode=parse_mode,
+                )
+            else:
+                await query.edit_message_text(
+                    text,
+                    reply_markup=markup,
+                    parse_mode=parse_mode,
+                )
+        else:
+            await query.edit_message_text(
+                text,
+                reply_markup=markup,
+                parse_mode=parse_mode,
+            )
+    except TelegramError:
+        try:
+            await query.message.delete()
+        except:
+            pass
+
+        if photo_bytes is not None:
+            await query.message.reply_photo(
+                photo=photo_bytes,
+                caption=text,
+                reply_markup=markup,
+                parse_mode=parse_mode,
+            )
+        else:
+            await query.message.reply_text(
+                text,
+                reply_markup=markup,
+                parse_mode=parse_mode,
+            )
+            
+
 def get_tech_category_name():
     return "📦 Без категории"
 
@@ -957,33 +1003,30 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
 async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
+
     query = update.callback_query
     await query.answer()
     if not is_admin(update.effective_user.id):
         return
+
     pid = int(query.data.split("|")[1])
     product = get_product(pid)
     if not product:
         await query.edit_message_text("❌ Товар не найден")
         return
-    
+
     context.user_data["edit_product"] = product
-    
+
     product_text = format_product(product)
-    
     admin_info = (
         f"\n\n📋 <b>Информация для менеджера:</b>\n"
         f"ID: {product['id']}\n"
         f"Категория: {sanitize(product.get('category', '—'), 50)}"
     )
-    
     full_text = product_text + admin_info
-    
-    current_category = product.get('category', '')
-    if not current_category:
-        current_category = get_tech_category_name()
-    
+
+    current_category = product.get("category", "") or get_tech_category_name()
+
     kb = [
         [InlineKeyboardButton("✏️ Изменить название", callback_data="editfield|name")],
         [InlineKeyboardButton("📝 Изменить описание", callback_data="editfield|description")],
@@ -994,32 +1037,33 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🗑 Удалить товар", callback_data=f"deleteprod|{pid}")],
         [InlineKeyboardButton("🔙 К товарам категории", callback_data=f"admincat|{current_category}")],
     ]
-    
+
     photo_bytes = get_product_photo_bytes(product)
-    
+
     try:
         await query.message.delete()
-        
-        if photo_bytes:
-            await query.message.reply_photo(
-                photo=photo_bytes,
-                caption=full_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(kb),
-            )
-        else:
-            await query.message.reply_text(
-                full_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(kb),
-            )
-    except TelegramError as e:
-        log.error("Failed to show edit product menu: %s", e)
+    except:
+        pass
+
+    if photo_bytes:
+        await query.message.reply_photo(
+            photo=photo_bytes,
+            caption=full_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+    else:
+        await query.message.reply_text(
+            full_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
 
 
 async def delete_product_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
+
     query = update.callback_query
     await query.answer()
 
@@ -1034,18 +1078,29 @@ async def delete_product_prompt(update: Update, context: ContextTypes.DEFAULT_TY
 
     kb = [
         [InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_delete|{pid}")],
-        [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_delete|{pid}")]
+        [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_delete|{pid}")],
     ]
 
-    await query.edit_message_text(
-        f"🗑 Вы уверены, что хотите удалить товар «{sanitize(product['name'], 50)}»?\n\nЭто действие нельзя отменить.",
-        reply_markup=InlineKeyboardMarkup(kb),
+    text = (
+        f"🗑 Вы уверены, что хотите удалить товар «{sanitize(product['name'], 50)}»?\n\n"
+        f"Это действие нельзя отменить."
     )
 
+    if query.message.photo:
+        await query.edit_message_caption(
+            caption=text,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+    else:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
 
 async def confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
+
     query = update.callback_query
     await query.answer()
 
@@ -1062,12 +1117,18 @@ async def confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_T
     products = [p for p in products if p["id"] != pid]
     save_products(products)
 
-    await query.edit_message_text(f"✅ Товар «{sanitize(product['name'], 50)}» удалён")
+    text = f"✅ Товар «{sanitize(product['name'], 50)}» удалён"
+
+    if query.message.photo:
+        await query.edit_message_caption(caption=text)
+    else:
+        await query.edit_message_text(text)
 
 
 async def cancel_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
+
     query = update.callback_query
     await query.answer()
 
@@ -1078,7 +1139,12 @@ async def cancel_delete_product(update: Update, context: ContextTypes.DEFAULT_TY
     product = get_product(pid)
     name = product["name"] if product else f"#{pid}"
 
-    await query.edit_message_text(f"❌ Удаление товара «{sanitize(name, 50)}» отменено")
+    text = f"❌ Удаление товара «{sanitize(name, 50)}» отменено"
+
+    if query.message.photo:
+        await query.edit_message_caption(caption=text)
+    else:
+        await query.edit_message_text(text)
 
 
 async def edit_product_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1329,19 +1395,21 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
+
     query = update.callback_query
     await query.answer()
     category = query.data.split("|", 1)[1]
     products = [p for p in load_products() if p["category"] == category]
+
     if not products:
         await query.edit_message_text(
             "📦 В категории нет товаров",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")
-            ]])
+            ]]),
         )
         return
+
     context.user_data["cat_products"] = products
     context.user_data["current_index"] = 0
     await show_product_card(update, context)
@@ -1350,66 +1418,75 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
+
     index = context.user_data.get("current_index", 0)
     products = context.user_data.get("cat_products", [])
     if not products or index >= len(products):
         return
+
     p = products[index]
     text = format_product(p)
-    
+
     rows = []
-    
+
     if len(products) > 1:
         nav_buttons = []
-        
         if index > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_prev"))
         else:
             nav_buttons.append(InlineKeyboardButton("⬅️", callback_data="nav_none"))
-        
+
         nav_buttons.append(InlineKeyboardButton(f"{index + 1}/{len(products)}", callback_data="nav_none"))
-        
+
         if index < len(products) - 1:
             nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_next"))
         else:
             nav_buttons.append(InlineKeyboardButton("➡️", callback_data="nav_none"))
-        
+
         rows.append(nav_buttons)
-    
+
     if int(p["stock"]) > 0:
         rows.append([InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"addcart|{p['id']}")])
-    
+
     rows.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_cats")])
-    
+
     photo_bytes = get_product_photo_bytes(p)
-    
+    query = update.callback_query
+
     try:
-        if update.callback_query:
+        if query:
             try:
-                await update.callback_query.message.delete()
+                await query.message.delete()
             except:
                 pass
-        
+
         if photo_bytes:
-            if update.callback_query:
-                await update.callback_query.message.reply_photo(
-                    photo=photo_bytes, caption=text, parse_mode=ParseMode.HTML,
+            if query:
+                await query.message.reply_photo(
+                    photo=photo_bytes,
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(rows),
                 )
             else:
                 await update.message.reply_photo(
-                    photo=photo_bytes, caption=text, parse_mode=ParseMode.HTML,
+                    photo=photo_bytes,
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(rows),
                 )
         else:
-            if update.callback_query:
-                await update.callback_query.message.reply_text(
-                    text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(rows),
+            if query:
+                await query.message.reply_text(
+                    text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(rows),
                 )
             else:
                 await update.message.reply_text(
-                    text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(rows),
+                    text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(rows),
                 )
     except TelegramError as e:
         log.error("Failed to show product card: %s", e)
@@ -1418,52 +1495,53 @@ async def show_product_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
+
     query = update.callback_query
     await query.answer()
     action = query.data
-    
+
     if action == "nav_none":
         return
-    
+
     if action == "nav_prev":
         context.user_data["current_index"] = max(0, context.user_data.get("current_index", 0) - 1)
         return await show_product_card(update, context)
-    
+
     if action == "nav_next":
         products = context.user_data.get("cat_products", [])
         context.user_data["current_index"] = min(len(products) - 1, context.user_data.get("current_index", 0) + 1)
         return await show_product_card(update, context)
-    
+
     if action == "back_to_cats":
         context.user_data.pop("cat_products", None)
         context.user_data.pop("current_index", None)
-        
+
         categories = load_categories()
         if not categories:
             await query.edit_message_text("📂 Категорий пока нет")
             return
-        
+
         if not is_admin(update.effective_user.id):
             categories = [cat for cat in categories if not is_hidden_category(cat)]
-        
+
         if not categories:
             await query.edit_message_text("📂 Категорий пока нет")
             return
-        
+
         kb = [[InlineKeyboardButton(cat, callback_data=f"showcat|{cat}")] for cat in categories]
         await query.edit_message_text(
             "📂 Выберите категорию:",
             reply_markup=InlineKeyboardMarkup(kb),
         )
         return
-    
+
     if action.startswith("addcart|"):
         pid = int(action.split("|")[1])
         product = get_product(pid)
         if not product:
             await query.message.reply_text("❌ Товар не найден.")
             return
+
         context.user_data["adding_product_id"] = pid
         await query.message.reply_text(
             f"📝 Введите количество для '{sanitize(product['name'], 50)}'\n"
@@ -1471,7 +1549,7 @@ async def nav_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Или нажмите «Отмена»:",
             reply_markup=get_cancel_keyboard(),
         )
-        return ADD_TO_CART_QTY
+        return ADD_TO_CART_QTYа ч
 
 
 # =========================================================
