@@ -2143,12 +2143,7 @@ async def my_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
     
     if not order:
-        await query.edit_message_text(
-            "❌ Заказ не найден",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 К моим заказам", callback_data="my_orders_back")
-            ]]),
-        )
+        await query.edit_message_text("❌ Заказ не найден")
         return
     
     try:
@@ -2178,14 +2173,12 @@ async def my_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("")
     lines.append(f"💰 <b>Итого: {order['total']:,.0f}₽</b>")
     
-    kb = [[InlineKeyboardButton("🔙 К моим заказам", callback_data="my_orders_back")]]
-    
+    # Убираем кнопку полностью, передавая None или пустую клавиатуру
     await query.edit_message_text(
         "\n".join(lines),
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(kb),
+        reply_markup=None,  # Изменено: убираем кнопку
     )
-
 
 async def back_to_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
