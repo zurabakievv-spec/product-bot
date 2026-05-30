@@ -199,6 +199,40 @@ def save_categories(data):
     safe_save_json("categories.json", list(set(data)))
 
 
+def get_sorted_categories():
+    categories = load_categories()
+
+    technical = []
+    normal = []
+
+    for cat in categories:
+        if cat.strip().lower() == "техническая":
+            technical.append(cat)
+        else:
+            normal.append(cat)
+
+    normal.sort(key=lambda x: x.lower())
+
+    return normal + technical
+
+
+def format_product_button_name(name: str, width: int = 22):
+    name = str(name).strip()
+
+    if len(name) <= width:
+        return name
+
+    pos = name.rfind(" ", 0, width)
+
+    if pos == -1:
+        pos = width
+
+    first_line = name[:pos].strip()
+    second_line = name[pos:].strip()
+
+    return f"{first_line}\n{second_line}"
+
+
 # =========================================================
 # DOMAIN
 # =========================================================
@@ -514,7 +548,7 @@ async def manage_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_waiting_states(context)
     if not is_admin(update.effective_user.id):
         return
-    categories = load_categories()
+    categories = get_sorted_categories()
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
@@ -849,7 +883,7 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_PRODUCT_STOCK
 
     context.user_data["new_product"]["stock"] = stock
-    categories = load_categories()
+    categories = get_sorted_categories()
     available_categories = [cat for cat in categories if not is_hidden_category(cat)]
 
     keyboard = []
@@ -1007,7 +1041,7 @@ async def list_products_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not is_admin(update.effective_user.id):
         return
     
-    categories = load_categories()
+    categories = get_sorted_categories()
     if not categories:
         await update.message.reply_text("📂 Сначала создайте категории")
         return
@@ -1060,15 +1094,19 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
         return
     
     kb = []
+
     for p in products:
-        stock = int(p.get("stock", 0))
-        status = "🟢" if stock > 0 else "🔴"
-        kb.append([
-            InlineKeyboardButton(
-                f"{status} {sanitize(p['name'], 30)} | {p['price']:,.0f}₽ | ост: {stock}",
-                callback_data=f"editprod|{p['id']}"
-            )
-        ])
+    stock = int(p.get("stock", 0))
+    status = "🟢" if stock > 0 else "🔴"
+
+    product_name = format_product_button_name(p["name"])
+
+    kb.append([
+        InlineKeyboardButton(
+            f"{status} {product_name}\n💰 {p['price']:,0f}₽ | ост: {stock}",
+            callback_data=f"editprod|{p['id']}"
+        )
+    ])
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
     
     await query.message.reply_text(
@@ -1450,7 +1488,7 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     clear_waiting_states(context)
-    categories = load_categories()
+    categories = get_sorted_categories()
     if not categories:
         await update.message.reply_text("📂 Категорий пока нет")
         return
