@@ -906,7 +906,7 @@ async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
-        reply_markup=ReplyKeyboardMarkup([[\"Пропустить\"], [\"Отмена\"]], resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
     )
     return ADD_PRODUCT_PHOTO
 
