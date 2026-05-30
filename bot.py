@@ -990,7 +990,7 @@ async def save_new_category_and_continue(update: Update, context: ContextTypes.D
 
     await update.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
-        reply_markup=ReplyKeyboardMarkup([[\"Пропустить\"], [\"Отмена\"]], resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
     )
     return ADD_PRODUCT_PHOTO
 
