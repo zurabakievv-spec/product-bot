@@ -81,14 +81,13 @@ os.makedirs(PHOTOS_DIR, exist_ok=True)
     ADD_PRODUCT_DESC,
     ADD_PRODUCT_PRICE,
     ADD_PRODUCT_STOCK,
-    ,
+    ADD_PRODUCT_CATEGORY,
     ADD_PRODUCT_PHOTO,
     NEW_CATEGORY_NAME,
     ADD_ADMIN_ID,
     EDIT_CART_QTY,
     ADD_PRODUCT_NEW_CATEGORY,
 ) = range(14)
-
 # =========================================================
 # BUTTONS
 # =========================================================
@@ -2645,38 +2644,75 @@ def main():
 
     # Добавить товар
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_prompt)],
-        states={
-            ADD_PRODUCT_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_name)
-            ],
-            ADD_PRODUCT_DESC: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_desc)
-            ],
-            ADD_PRODUCT_PRICE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_price)
-            ],
-            ADD_PRODUCT_STOCK: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)
-            ],
-            : [
-                CallbackQueryHandler(
-                    ,
-                    pattern="^(cat\\||create_category_from_product|cancel_product_creation)$"
-                )
-            ],
-            ADD_PRODUCT_NEW_CATEGORY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_category_and_continue)
-            ],
-            ADD_PRODUCT_PHOTO: [
-                MessageHandler(filters.PHOTO, add_product_photo),
-                MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
-                MessageHandler(filters.Regex("^Отмена$"), cancel_action),
-            ],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
-        allow_reentry=True,
-    ))
+    entry_points=[
+        MessageHandler(
+            filters.Regex("^➕ Добавить товар$"),
+            add_product_prompt
+        )
+    ],
+    states={
+        ADD_PRODUCT_NAME: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                add_product_name
+            )
+        ],
+
+        ADD_PRODUCT_DESC: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                add_product_desc
+            )
+        ],
+
+        ADD_PRODUCT_PRICE: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                add_product_price
+            )
+        ],
+
+        ADD_PRODUCT_STOCK: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                add_product_stock
+            )
+        ],
+
+        ADD_PRODUCT_CATEGORY: [
+            CallbackQueryHandler(
+                add_product_category,
+                pattern=r"^(cat\|.*|create_category_from_product|cancel_product_creation)$"
+            )
+        ],
+
+        ADD_PRODUCT_NEW_CATEGORY: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                save_new_category_and_continue
+            )
+        ],
+
+        ADD_PRODUCT_PHOTO: [
+            MessageHandler(filters.PHOTO, add_product_photo),
+            MessageHandler(
+                filters.Regex("^Пропустить$"),
+                add_product_photo
+            ),
+            MessageHandler(
+                filters.Regex("^Отмена$"),
+                cancel_action
+            ),
+        ],
+    },
+    fallbacks=[
+        MessageHandler(
+            filters.Regex("^Отмена$"),
+            cancel_action
+        )
+    ],
+    allow_reentry=True,
+))
 
     # Корзина / оформление
     app.add_handler(ConversationHandler(
