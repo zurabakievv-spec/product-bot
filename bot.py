@@ -1094,19 +1094,16 @@ async def show_admin_category_products(update: Update, context: ContextTypes.DEF
         return
     
     kb = []
-
     for p in products:
-      stock = int(p.get("stock", 0))
-      status = "🟢" if stock > 0 else "🔴"
-
-       product_name = format_product_button_name(p["name"])
-
-       kb.append([
-        InlineKeyboardButton(
-            f"{status} {product_name}\n💰 {p['price']:,0f}₽ | ост: {stock}",
-            callback_data=f"editprod|{p['id']}"
-        )
-    ])
+        stock = int(p.get("stock", 0))
+        status = "🟢" if stock > 0 else "🔴"
+        product_name = format_product_button_name(p["name"]) 
+        kb.append([                                         
+            InlineKeyboardButton(
+                f"{status} {product_name}\n💰 {p['price']:,.0f}₽ | ост: {stock}",
+                callback_data=f"editprod|{p['id']}"
+            )
+        ])
     kb.append([InlineKeyboardButton("🔙 К категориям", callback_data="back_to_admin_cats")])
     
     await query.message.reply_text(
