@@ -81,7 +81,7 @@ os.makedirs(PHOTOS_DIR, exist_ok=True)
     ADD_PRODUCT_DESC,
     ADD_PRODUCT_PRICE,
     ADD_PRODUCT_STOCK,
-    ADD_PRODUCT_CATEGORY,
+    ,
     ADD_PRODUCT_PHOTO,
     NEW_CATEGORY_NAME,
     ADD_ADMIN_ID,
@@ -907,7 +907,7 @@ async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
-        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup([[\"Пропустить\"], [\"Отмена\"]], resize_keyboard=True),
     )
     return ADD_PRODUCT_PHOTO
 
@@ -991,7 +991,7 @@ async def save_new_category_and_continue(update: Update, context: ContextTypes.D
 
     await update.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
-        reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup([[\"Пропустить\"], [\"Отмена\"]], resize_keyboard=True),
     )
     return ADD_PRODUCT_PHOTO
 
@@ -2516,30 +2516,32 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return
-    
+
     text = update.message.text if update.message else None
-    
+
     menu_buttons = [
         "📦 Каталог", "🛒 Корзина", "📋 Мои заказы",
         "📦 Управление товарами", "📂 Управление категориями", "📋 Заказы",
         "➕ Добавить категорию", "➕ Добавить товар", "👤 Добавить менеджера",
         "ℹ️ Инфо", "🛑 Стоп"
     ]
-    
+
     is_waiting = (
-    context.user_data.get("awaiting_rename")
-    or context.user_data.get("awaiting_photo")
-    or context.user_data.get("edit_field")
-    or context.user_data.get("new_product")
-)
-    
+        context.user_data.get("awaiting_rename")
+        or context.user_data.get("awaiting_photo")
+        or context.user_data.get("edit_field")
+        or context.user_data.get("new_product")
+    )
+
     if is_waiting and text and text in menu_buttons:
         clear_waiting_states(context)
         await update.message.reply_text(
             "⚠️ Действие прервано. Начинаем новый процесс...",
             reply_markup=get_reply_markup(update.effective_user.id),
         )
-    elif is_waiting:
+        return
+
+    if is_waiting:
         if context.user_data.get("awaiting_rename"):
             result = await handle_rename_input(update, context)
             if result:
@@ -2553,7 +2555,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if result:
                 return
         return
-    
+
     if text and text.startswith('/'):
         if text == "/start":
             clear_waiting_states(context)
@@ -2569,7 +2571,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         return
-    
+
     if text == "📦 Каталог":
         return await show_categories(update, context)
     if text == "🛒 Корзина":
@@ -2657,9 +2659,9 @@ def main():
             ADD_PRODUCT_STOCK: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)
             ],
-            ADD_PRODUCT_CATEGORY: [
+            : [
                 CallbackQueryHandler(
-                    add_product_category,
+                    ,
                     pattern="^(cat\\||create_category_from_product|cancel_product_creation)$"
                 )
             ],
