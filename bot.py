@@ -86,7 +86,8 @@ os.makedirs(PHOTOS_DIR, exist_ok=True)
     NEW_CATEGORY_NAME,
     ADD_ADMIN_ID,
     EDIT_CART_QTY,
-) = range(13)
+    ADD_PRODUCT_NEW_CATEGORY,
+) = range(14)
 
 # =========================================================
 # BUTTONS
@@ -833,32 +834,32 @@ async def add_product_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return ConversationHandler.END
-    
+
     text = update.message.text.strip()
     if text == "Отмена":
         return await cancel_action(update, context)
+
     try:
         stock = int(text)
     except:
         await update.message.reply_text("❌ Введите целое число")
         return ADD_PRODUCT_STOCK
+
     if stock < 0:
         await update.message.reply_text("❌ Остаток не может быть отрицательным")
         return ADD_PRODUCT_STOCK
+
     context.user_data["new_product"]["stock"] = stock
     categories = load_categories()
-    
     available_categories = [cat for cat in categories if not is_hidden_category(cat)]
-    
-    # СОЗДАЁМ КЛАВИАТУРУ С КНОПКАМИ
+
     keyboard = []
     for cat in available_categories:
         keyboard.append([InlineKeyboardButton(cat, callback_data=f"cat|{cat}")])
-    
-    # ДОБАВЛЯЕМ НОВЫЕ КНОПКИ
+
     keyboard.append([InlineKeyboardButton("➕ Создать новую категорию", callback_data="create_category_from_product")])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_product_creation")])
-    
+
     await update.message.reply_text(
         "📂 Выберите категорию для товара:",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -869,33 +870,41 @@ async def add_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_product_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return ConversationHandler.END
-    
+
     query = update.callback_query
-    
-    # Обработка отмены
+    await query.answer()
+
     if query.data == "cancel_product_creation":
-        await query.answer()
+        try:
+            await query.message.delete()
+        except:
+            pass
         await query.message.reply_text(
             "❌ Создание товара отменено",
             reply_markup=get_reply_markup(update.effective_user.id),
         )
         context.user_data.pop("new_product", None)
         return ConversationHandler.END
-    
-    # Обработка создания новой категории
+
     if query.data == "create_category_from_product":
-        await query.answer()
-        # Запрашиваем название новой категории
+        try:
+            await query.message.delete()
+        except:
+            pass
         await query.message.reply_text(
             "📂 Введите название новой категории:\n\nИли нажмите «Отмена»:",
             reply_markup=get_cancel_keyboard(),
         )
-        return NEW_CATEGORY_NAME
-    
-    # Обычный выбор существующей категории
-    await query.answer()
+        return ADD_PRODUCT_NEW_CATEGORY
+
     category = query.data.split("|", 1)[1]
     context.user_data["new_product"]["category"] = category
+
+    try:
+        await query.message.delete()
+    except:
+        pass
+
     await query.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
         reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
@@ -939,53 +948,47 @@ async def add_product_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_new_category_and_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private_chat(update):
         return ConversationHandler.END
-    
+
     text = update.message.text.strip()
-    
+
     if text == "Отмена":
-        # Возвращаемся к выбору категории
         categories = load_categories()
         available_categories = [cat for cat in categories if not is_hidden_category(cat)]
-        
+
         keyboard = []
         for cat in available_categories:
             keyboard.append([InlineKeyboardButton(cat, callback_data=f"cat|{cat}")])
         keyboard.append([InlineKeyboardButton("➕ Создать новую категорию", callback_data="create_category_from_product")])
         keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_product_creation")])
-        
+
         await update.message.reply_text(
             "📂 Выберите категорию для товара:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return ADD_PRODUCT_CATEGORY
-    
+
     if not text:
         await update.message.reply_text("❌ Введите название категории:")
-        return NEW_CATEGORY_NAME
-    
+        return ADD_PRODUCT_NEW_CATEGORY
+
     if len(text) > 50:
         await update.message.reply_text("❌ Слишком длинное название (макс. 50 символов)\n\nВведите другое название или нажмите «Отмена»:")
-        return NEW_CATEGORY_NAME
-    
+        return ADD_PRODUCT_NEW_CATEGORY
+
     cats = load_categories()
     if text in cats:
         await update.message.reply_text(
-            f"❌ Категория '{text}' уже существует\n\n"
-            f"Используйте существующую категорию или введите другое название:",
+            f"❌ Категория '{text}' уже существует\n\nИспользуйте существующую категорию или введите другое название:",
             reply_markup=get_cancel_keyboard(),
         )
-        return NEW_CATEGORY_NAME
-    
-    # СОЗДАЁМ НОВУЮ КАТЕГОРИЮ
+        return ADD_PRODUCT_NEW_CATEGORY
+
     cats.append(text)
     save_categories(cats)
-    
+
     await update.message.reply_text(f"✅ Категория '{text}' создана!")
-    
-    # ПРИМЕНЯЕМ КАТЕГОРИЮ К ТОВАРУ
     context.user_data["new_product"]["category"] = text
-    
-    # ПЕРЕХОДИМ К ДОБАВЛЕНИЮ ФОТО
+
     await update.message.reply_text(
         "📸 Отправьте фото товара или нажмите «Пропустить»:",
         reply_markup=ReplyKeyboardMarkup([["Пропустить"], ["Отмена"]], resize_keyboard=True),
@@ -2523,7 +2526,12 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "ℹ️ Инфо", "🛑 Стоп"
     ]
     
-    is_waiting = context.user_data.get("awaiting_rename") or context.user_data.get("awaiting_photo") or context.user_data.get("edit_field")
+    is_waiting = (
+    context.user_data.get("awaiting_rename")
+    or context.user_data.get("awaiting_photo")
+    or context.user_data.get("edit_field")
+    or context.user_data.get("new_product")
+)
     
     if is_waiting and text and text in menu_buttons:
         clear_waiting_states(context)
@@ -2603,83 +2611,127 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN
 # =========================================================
 
+Да — вот полный блок main() уже с правками, без дублей и с правильным state для новой категории внутри добавления товара.
+
+main
+python
 def main():
     init_storage()
-    
+
     import asyncio
-    
+
     app = Application.builder().token(BOT_TOKEN).build()
-    
+
     async def cleanup():
         await app.bot.delete_webhook(drop_pending_updates=True)
         log.info("Cleaned up webhook and pending updates")
-    
+
     asyncio.get_event_loop().run_until_complete(cleanup())
-    
+
     # Команды бота
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("stop", stop_command))
-    
-    # Диалоги
+
+    # Добавить категорию
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Добавить категорию$"), new_category_prompt)],
-        states={NEW_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_category_name)]},
-        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
-        allow_reentry=True,
-    ))
-    
-    app.add_handler(ConversationHandler(
-    entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_prompt)],
-    states={
-        ADD_PRODUCT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_name)],
-        ADD_PRODUCT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_desc)],
-        ADD_PRODUCT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_price)],
-        ADD_PRODUCT_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)],
-        ADD_PRODUCT_CATEGORY: [CallbackQueryHandler(add_product_category, pattern="^(cat\\||create_category_from_product|cancel_product_creation)$")],
-        NEW_CATEGORY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_category_and_continue)],
-        ADD_PRODUCT_PHOTO: [
-            MessageHandler(filters.PHOTO, add_product_photo),
-            MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
-            MessageHandler(filters.Regex("^Отмена$"), cancel_action),
-        ],
-    },
-    fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
-    allow_reentry=True,
-))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(nav_product, pattern="^addcart\\|")],
-        states={ADD_TO_CART_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_to_cart_qty)]},
-        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
-        allow_reentry=True,
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(change_cart_qty_prompt, pattern="^changeqty\\|")],
-        states={EDIT_CART_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_cart_qty_execute)]},
-        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
-        allow_reentry=True,
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(cart_actions, pattern="^(checkout|clear_cart|edit_cart|back_to_cart)$")],
         states={
-            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASK_PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), ask_phone)],
-            ASK_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_comment)],
+            NEW_CATEGORY_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_category_name)
+            ]
         },
         fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
         allow_reentry=True,
     ))
-    
+
+    # Добавить товар
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^👤 Добавить менеджера$"), add_admin_prompt)],
-        states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_admin)]},
+        entry_points=[MessageHandler(filters.Regex("^➕ Добавить товар$"), add_product_prompt)],
+        states={
+            ADD_PRODUCT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_name)
+            ],
+            ADD_PRODUCT_DESC: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_desc)
+            ],
+            ADD_PRODUCT_PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_price)
+            ],
+            ADD_PRODUCT_STOCK: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_product_stock)
+            ],
+            ADD_PRODUCT_CATEGORY: [
+                CallbackQueryHandler(
+                    add_product_category,
+                    pattern="^(cat\\||create_category_from_product|cancel_product_creation)$"
+                )
+            ],
+            ADD_PRODUCT_NEW_CATEGORY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_category_and_continue)
+            ],
+            ADD_PRODUCT_PHOTO: [
+                MessageHandler(filters.PHOTO, add_product_photo),
+                MessageHandler(filters.Regex("^Пропустить$"), add_product_photo),
+                MessageHandler(filters.Regex("^Отмена$"), cancel_action),
+            ],
+        },
         fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
         allow_reentry=True,
     ))
-    
+
+    # Корзина / оформление
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(nav_product, pattern="^addcart\\|")],
+        states={
+            ADD_TO_CART_QTY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_to_cart_qty)
+            ]
+        },
+        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
+        allow_reentry=True,
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(change_cart_qty_prompt, pattern="^changeqty\\|")],
+        states={
+            EDIT_CART_QTY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, change_cart_qty_execute)
+            ]
+        },
+        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
+        allow_reentry=True,
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(cart_actions, pattern="^(checkout|clear_cart|edit_cart|back_to_cart)$")],
+        states={
+            ASK_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)
+            ],
+            ASK_PHONE: [
+                MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), ask_phone)
+            ],
+            ASK_COMMENT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_comment)
+            ],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
+        allow_reentry=True,
+    ))
+
+    # Добавить менеджера
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^👤 Добавить менеджера$"), add_admin_prompt)],
+        states={
+            ADD_ADMIN_ID: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_admin)
+            ]
+        },
+        fallbacks=[MessageHandler(filters.Regex("^Отмена$"), cancel_action)],
+        allow_reentry=True,
+    ))
+
     # Callback handlers
     app.add_handler(CallbackQueryHandler(show_products, pattern="^showcat\\|"))
     app.add_handler(CallbackQueryHandler(show_admin_category_products, pattern="^admincat\\|"))
@@ -2705,11 +2757,11 @@ def main():
     app.add_handler(CallbackQueryHandler(cancel_delete_product, pattern=r"^cancel_delete\|"))
     app.add_handler(CallbackQueryHandler(back_to_my_orders, pattern="^my_orders_back$"))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
-    
+
     # Основной роутер
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
     app.add_handler(MessageHandler(filters.PHOTO, menu_router))
-    
+
     log.info("BOT STARTED")
     app.run_polling(drop_pending_updates=True)
 
