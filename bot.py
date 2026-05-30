@@ -2611,10 +2611,6 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN
 # =========================================================
 
-Да — вот полный блок main() уже с правками, без дублей и с правильным state для новой категории внутри добавления товара.
-
-main
-python
 def main():
     init_storage()
 
